@@ -428,17 +428,17 @@ An explicit ANC action performs this sequence on one new socket:
 3. Query and strictly validate the extended Pro 5 ANC state.
 4. If the current top-level mode already equals the requested mode, perform no write and return the matching read as success.
 5. Otherwise send exactly one retained write frame for `off`, `anc`, or `awareness`.
-6. Require the exact CRC-valid `2B/04` success acknowledgement `5A0006002B040201003171`.
-7. Do not update product state from `sendall()` or acknowledgement success.
-8. Query ANC state exactly once and require a CRC-valid extended Pro 5 response whose top-level mode equals the request.
+6. Receive exactly one post-write response. Accept either a CRC-valid extended `2B/2A` state response or the exact CRC-valid `2B/04` zero-status acknowledgement `5A0006002B040201003171`.
+7. Use a direct extended state response as the readback. After the acknowledgement route, query ANC state exactly once for the readback.
+8. Require the readback's top-level mode to equal the request; acknowledgement or `sendall()` success alone never updates product state.
 9. Close the socket.
 
-Only a matching readback after the exact success acknowledgement is success.
-Missing, malformed, rejected, or timed-out acknowledgement and missing,
-malformed, timed-out, or mismatched readback are failures. The bridge never
-repeats the write, sends an inverse write, or reports optimistic state. A valid
-mismatching readback is displayed as the observed current mode while the action
-reports `anc_readback_mismatch`.
+Only a matching post-write state response is success. The target firmware may
+return that state directly, while the retained acknowledgement route requires
+one following query. Missing, malformed, rejected, timed-out, or mismatched
+confirmation is failure. The bridge never repeats the write, sends an inverse
+write, or reports optimistic state. A valid mismatching state is displayed as
+the observed current mode while the action reports `anc_readback_mismatch`.
 
 ## 12. Service interface and generations
 
@@ -536,8 +536,8 @@ Generic Quickshell state remains available in every row below unless the shell i
 | ANC response is absent, short other-model shape, or unknown | Clear ANC and hide controls | `Noise control not reported` | None |
 | ANC request equals current mode | Send no write; accept the fresh matching read | Current mode remains selected | Socket closes normally |
 | ANC frame cannot be fully sent | Close socket; clear ANC; do not replay | `Noise control change was not confirmed` and `Retry` | None |
-| ANC acknowledgement is absent, invalid, rejected, or times out | Close socket; clear ANC; do not replay | `Noise control change was not confirmed` and `Retry` | None |
-| ANC readback is absent, invalid, or times out | Close socket; clear ANC; do not replay or invert | `Noise control change was not confirmed` and `Retry` | None |
+| Post-write response is neither an exact success acknowledgement nor a valid extended ANC state | Close socket; clear ANC; do not replay | `Noise control change was not confirmed` and `Retry` | None |
+| ANC readback is absent, invalid, or times out after an acknowledgement | Close socket; clear ANC; do not replay or invert | `Noise control change was not confirmed` and `Retry` | None |
 | ANC readback is valid but differs | Report action failure and show the valid observed mode | `Earbuds reported a different mode` and `Retry` | None |
 | Private observation reaches 131 seconds | Mark stale; remove private bar metric and disable private controls | Timestamp plus `Battery data is out of date` and `Retry` | None |
 | Private observation exceeds 10 minutes | Clear expired values | `Not reported` and `Retry` | None |
@@ -582,7 +582,7 @@ The following branches are closed for `0.1.0`. Implementing one requires a new a
 | Persistent RFCOMM socket | Unmeasured coexistence, power, and stale-state risk | New bounded socket for each explicit transaction |
 | Background polling, notifications, heartbeat reads, or reconnect contact | Causes hidden device traffic and stale lifecycle complexity | Panel-open, Retry, and explicit ANC triggers only |
 | Automatic read retry | Converts one trigger into undisclosed extra device traffic | One attempt; user presses Retry for a new attempt |
-| Automatic write retry, inverse write, or optimistic update | Delivery can succeed before reply loss and make replay destructive | One exact write, one exact success acknowledgement, and one matching readback |
+| Automatic write retry, inverse write, or optimistic update | Delivery can succeed before reply loss and make replay destructive | One exact write and one matching post-write state, directly or after an exact acknowledgement |
 | Name-only, address-only, CRC-only, or battery-only identity | Each can match an unsupported or spoofed target | `00016D` DeviceInfo plus retained Pro 5 response shape |
 | Unverified raw diagnostic values in product state | Risks presenting another model's data as Pro 5 data | Generic fallback with private fields absent |
 | Support for other FreeBuds models | No closed fixture and identity corpus for them | Exact T0023/`00016D` target only |

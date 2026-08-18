@@ -19,7 +19,7 @@ The implementation keeps these invariants from the first commit:
 - The child creates only `AF_BLUETOOTH` RFCOMM sockets, always on channel 1 with `BT_SECURITY_MEDIUM`.
 - Device contact occurs only for panel-open refresh, explicit `Retry`, and explicit ANC actions.
 - Every private transaction uses a new socket, repeats identity verification, permits one outstanding request, performs no automatic retry, and closes in `finally`.
-- The three ANC writes are immutable captured frames and succeed only after an exact zero-status acknowledgement and matching readback.
+- The three ANC writes are immutable captured frames and succeed only after a matching post-write state, returned directly or queried once after an exact zero-status acknowledgement.
 - There is no OpenFreebuds integration, Omapods reuse, systemd unit, helper package, AUR dependency, IP networking, detached execution, Bluetooth management, channel scan, persistent socket, polling, notification subscription, reconnect contact, automatic write, or automatic write replay.
 - The selected address is the only persistent device datum and is stored atomically with mode `0600`.
 - Private values are nullable observations and are never fabricated or persisted.
@@ -184,7 +184,7 @@ python3 -m unittest tests.python.test_framer -v
 - Each requested mode selects exactly its retained frame.
 - Already-active mode sends zero write frames.
 - Matching readback commits success.
-- Missing, malformed, rejected, or timed-out acknowledgement and missing, malformed, timed-out, or mismatching readback never commit success or replay the write.
+- Missing, malformed, rejected, timed-out, or mismatching post-write confirmation never commits success or replays the write.
 - Connect, response, and total deadlines each fault once and close once.
 - EOF, busy channel, unexpected response, bad frame, and disconnect close once and do not retry.
 - A transaction creates one socket; completion leaves no socket referenced by the controller.
@@ -385,7 +385,7 @@ Run QML unit tests and perform an Omarchy host smoke pass for:
 - Adapter absent, adapter off, no candidate, one disconnected candidate, one connected candidate, multiple candidates, and persisted-address absent states.
 - Generic battery absent, zero, low, full, and invalid.
 - Valid components, partial components, stale components, expired components, and refresh failure.
-- Valid ANC state, pending action, already-active action, exact write acknowledgement, matching readback, missing acknowledgement/readback, and mismatching readback.
+- Valid ANC state, pending action, already-active action, direct matching state, exact write acknowledgement plus matching readback, missing confirmation, and mismatching state.
 - Keyboard-only operation, narrow panel width, host scaling, and two-monitor panel switching.
 - No QML warnings, binding loops, destroyed-QObject access, duplicate process, duplicate trigger, or blocked shell frame.
 
@@ -554,7 +554,7 @@ Implementation is complete when all of these statements are true:
 3. One shell owns one attached Python child and zero idle RFCOMM sockets.
 4. Static and dynamic tests prove that only panel-open, Retry, and explicit ANC actions contact the private channel.
 5. Every contact uses channel 1, medium security, same-transaction `00016D`, a retained Pro 5 shape, one outstanding request, bounded deadlines, and unconditional close.
-6. Every ANC success has an exact zero-status acknowledgement and matching readback; no failure path retries or replays a write.
+6. Every ANC success has a matching post-write state, returned directly or queried after an exact zero-status acknowledgement; no failure path retries or replays a write.
 7. Quickshell remains authoritative for generic state and the UI performs no Bluetooth mutation.
 8. Selection persistence is atomic mode `0600`; no private observation is persisted or fabricated.
 9. Every architecture failure state has a tested deterministic generic fallback.

@@ -656,32 +656,51 @@ class TransactionController:
                     "writePerformed": False,
                 }
 
+            readback = None
             try:
                 self._send(
                     lambda timeout: transport.send_anc_write(mode, timeout),
                     deadline,
                 )
-                ack_timeout = min(RESPONSE_TIMEOUT_SECONDS, self._remaining(deadline))
-                ack_deadline = self._clock() + ack_timeout
-                ack = transport.receive_frame(ack_timeout)
-                if self._clock() > ack_deadline:
+                confirmation_timeout = min(RESPONSE_TIMEOUT_SECONDS, self._remaining(deadline))
+                confirmation_deadline = self._clock() + confirmation_timeout
+                confirmation = transport.receive_frame(confirmation_timeout)
+                if self._clock() > confirmation_deadline:
                     raise BridgeError("timeout")
                 self._remaining(deadline)
-                _expect_anc_write_ack(ack)
+                parsed_confirmation = _coerce_frame(confirmation)
             except BridgeError as error:
                 raise BridgeError("anc_send_failed") from error
 
-            try:
-                readback_frame = self._query(
-                    transport,
-                    transport.send_anc_query,
-                    0x2B,
-                    0x2A,
-                    deadline,
-                )
-                readback = decode_anc(readback_frame)
-            except BridgeError as error:
-                raise BridgeError("anc_readback_failed") from error
+            confirmation_pair = (
+                parsed_confirmation.get("service"),
+                parsed_confirmation.get("command"),
+            )
+            if confirmation_pair == (0x2B, 0x04):
+                try:
+                    _expect_anc_write_ack(parsed_confirmation)
+                except BridgeError as error:
+                    raise BridgeError("anc_send_failed") from error
+            elif confirmation_pair == (0x2B, 0x2A):
+                try:
+                    readback = decode_anc(parsed_confirmation)
+                except BridgeError as error:
+                    raise BridgeError("anc_readback_failed") from error
+            else:
+                raise BridgeError("anc_send_failed")
+
+            if readback is None:
+                try:
+                    readback_frame = self._query(
+                        transport,
+                        transport.send_anc_query,
+                        0x2B,
+                        0x2A,
+                        deadline,
+                    )
+                    readback = decode_anc(readback_frame)
+                except BridgeError as error:
+                    raise BridgeError("anc_readback_failed") from error
 
             observed_at = self._observation_time(deadline)
             if readback["mode"] != mode:

@@ -699,6 +699,37 @@ class AncTransactionTests(unittest.TestCase):
             ],
         )
 
+    def test_matching_post_write_state_confirms_without_ack_or_query(self):
+        transport = ScriptedTransport(
+            [
+                identity(),
+                CAPTURED_ANC["anc"],
+                CAPTURED_ANC["off"],
+            ]
+        )
+        controller, _ = self.controller(transport)
+
+        result = controller.set_anc(ADDRESS, "off")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["writePerformed"])
+        self.assertEqual(result["anc"]["mode"], "off")
+        self.assertEqual(transport.sent.count(bridge.SET_ANC_OFF), 1)
+        self.assertEqual(transport.sent.count(bridge.ANC_QUERY), 1)
+        self.assertEqual(
+            transport.events,
+            [
+                "connect",
+                ("send", bridge.DEVICE_INFO_QUERY),
+                "receive",
+                ("send", bridge.ANC_QUERY),
+                "receive",
+                ("send", bridge.SET_ANC_OFF),
+                "receive",
+                "close",
+            ],
+        )
+
     def test_already_active_mode_sends_no_write_or_readback_query(self):
         transport = ScriptedTransport([identity(), CAPTURED_ANC["anc"]])
         controller, _ = self.controller(transport)
@@ -731,7 +762,7 @@ class AncTransactionTests(unittest.TestCase):
             ],
         )
 
-    def test_missing_malformed_or_rejected_write_acks_never_query_readback(self):
+    def test_missing_malformed_or_rejected_write_confirmations_never_replay(self):
         damaged = bytearray(CAPTURED_ANC_WRITE_ACK)
         damaged[-1] ^= 1
         ack_failures = (
@@ -739,7 +770,7 @@ class AncTransactionTests(unittest.TestCase):
             bytes(damaged),
             bridge.BridgeError("timeout"),
             frame(0x2B, 0x04, [(0x02, b"\x01")]),
-            CAPTURED_ANC["anc"],
+            identity(),
         )
         for failure in ack_failures:
             transport = ScriptedTransport([identity(), CAPTURED_ANC["off"], failure])
@@ -751,6 +782,30 @@ class AncTransactionTests(unittest.TestCase):
                 self.assertEqual(transport.sent.count(bridge.ANC_QUERY), 1)
                 self.assertEqual(factory.calls, 1)
                 self.assertEqual(transport.close_calls, 1)
+
+    def test_malformed_direct_post_write_state_never_queries_or_replays(self):
+        transport = ScriptedTransport([identity(), CAPTURED_ANC["off"], INVALID_ANC_SHAPE])
+        controller, _ = self.controller(transport)
+
+        with self.assertRaisesRegex(bridge.BridgeError, "anc_readback_failed"):
+            controller.set_anc(ADDRESS, "anc")
+
+        self.assertEqual(transport.sent.count(bridge.SET_ANC_ON), 1)
+        self.assertEqual(transport.sent.count(bridge.ANC_QUERY), 1)
+
+    def test_direct_mismatching_post_write_state_reports_without_query_or_replay(self):
+        transport = ScriptedTransport(
+            [identity(), CAPTURED_ANC["off"], CAPTURED_ANC["awareness"]]
+        )
+        controller, _ = self.controller(transport)
+
+        with self.assertRaises(bridge.BridgeError) as raised:
+            controller.set_anc(ADDRESS, "anc")
+
+        self.assertEqual(raised.exception.code, "anc_readback_mismatch")
+        self.assertEqual(raised.exception.details["observedMode"], "awareness")
+        self.assertEqual(transport.sent.count(bridge.SET_ANC_ON), 1)
+        self.assertEqual(transport.sent.count(bridge.ANC_QUERY), 1)
 
     def test_missing_malformed_and_timed_out_readbacks_never_replay(self):
         damaged = bytearray(CAPTURED_ANC["anc"])
