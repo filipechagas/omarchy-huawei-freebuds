@@ -53,7 +53,7 @@ jobs:
               "version": "0.1.0",
               "author": "Filipe Chagas",
               "license": "MIT",
-              "description": "Experimental battery and noise control for Huawei FreeBuds Pro 5.",
+              "description": "Battery and noise control for Huawei FreeBuds Pro 5.",
               "kinds": ["service", "bar-widget"],
               "entryPoints": {
                   "service": "Service.qml",
@@ -61,7 +61,7 @@ jobs:
               },
               "barWidget": {
                   "displayName": "FreeBuds Pro 5",
-                  "description": "Experimental battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
+                  "description": "Battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
                   "category": "Audio",
                   "allowMultiple": False,
                   "defaultSection": "right",
@@ -266,12 +266,11 @@ jobs:
 
           readme = Path("README.md").read_text(encoding="utf-8")
           required = [
-              "**Experimental:**",
+              "**Hardware validation pending:**",
               "T0023",
               "`00016D`",
               "Omarchy `4.0.0-1`",
               "MIT License",
-              "Hardware validation status is",
               "No hardware test is claimed as passed",
               "complete PGP or SSH signature envelope",
               "GitHub cryptographically verifies the PGP or SSH signature",

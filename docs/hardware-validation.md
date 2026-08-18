@@ -2,8 +2,6 @@
 
 Status: Pending
 
-Release classification: **Experimental**
-
 No hardware gate has been run or passed. Automated fixtures, parser tests, QML
 tests, and host smoke tests do not count as physical hardware evidence.
 
@@ -11,8 +9,8 @@ tests, and host smoke tests do not count as physical hardware evidence.
 
 A release tag can pass CI only when this document says `Status: Passed` and
 every row from HW-01 through HW-16 says `Pass`. A `Fail` or `Not run` result
-blocks the tag. Passing this gate does not remove the Experimental
-classification.
+blocks the tag. Passing this gate satisfies only the physical hardware
+condition; every other release condition still applies.
 
 The release tag must also be an annotated tag object containing a complete PGP
 or SSH signature envelope. CI queries GitHub's annotated-tag REST object with

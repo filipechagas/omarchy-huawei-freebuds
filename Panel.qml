@@ -401,7 +401,6 @@ Ui.Panel {
                     Ui.PanelHero {
                         title: "FreeBuds Pro 5"
                         meta: root.connectionText
-                        detail: "Experimental"
                         foreground: root.barForeground
                         fontFamily: root.fontFamily
                         iconComponent: Component {

@@ -16,8 +16,8 @@ The release provides:
 
 - An Omarchy 4 native bar widget and panel that are always present when enabled.
 - Generic paired, connected, adapter, and fallback aggregate-battery state from `Quickshell.Bluetooth`.
-- Experimental left, right, and case battery observations from strictly validated Huawei RFCOMM responses.
-- Experimental top-level noise-control state and explicit `Off`, `ANC`, and `Awareness` actions.
+- Left, right, and case battery observations from strictly validated Huawei RFCOMM responses.
+- Top-level noise-control state and explicit `Off`, `ANC`, and `Awareness` actions.
 - A deterministic generic BlueZ fallback whenever private access is unavailable.
 
 The release does not manage Bluetooth. Pairing, connecting, disconnecting, forgetting, adapter power, discovery, trust, and audio profiles remain the responsibility of Omarchy, BlueZ, and PipeWire/WirePlumber.
@@ -70,7 +70,7 @@ The manifest is schema version 1 and contains exactly the supported identity and
   "version": "0.1.0",
   "author": "Filipe Chagas",
   "license": "MIT",
-  "description": "Experimental battery and noise control for Huawei FreeBuds Pro 5.",
+  "description": "Battery and noise control for Huawei FreeBuds Pro 5.",
   "kinds": [
     "service",
     "bar-widget"
@@ -81,7 +81,7 @@ The manifest is schema version 1 and contains exactly the supported identity and
   },
   "barWidget": {
     "displayName": "FreeBuds Pro 5",
-    "description": "Experimental battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
+    "description": "Battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
     "category": "Audio",
     "allowMultiple": false,
     "defaultSection": "right"
@@ -479,7 +479,7 @@ The bar shows:
 
 The panel shows, in order:
 
-1. `FreeBuds Pro 5` with an `Experimental` label.
+1. A `FreeBuds Pro 5` header.
 2. Generic adapter and selected-device connection state from Quickshell.
 3. Either a generic `Earbuds` aggregate fallback or verified left, right, and case rows, never both presentations together.
 4. Private component rows only for valid observations; unknown fields read `Not reported` and never `0%` by default.
@@ -593,9 +593,14 @@ The following branches are closed for `0.1.0`. Implementing one requires a new a
 | External private-control IPC | Adds an undisclosed transaction trigger and multi-monitor target contention | Direct panel-to-singleton functions only |
 | Automatic child restart loop | Can thrash the shell and obscures failure | One child start; explicit Retry after failure |
 
-## 17. Release classification and hardware gate
+## 17. Release readiness and hardware gate
 
-Version `0.1.0` is **Experimental**. Passing physical validation authorizes an Experimental release tag; it does not promote the release to stable support or remove the Experimental label. Offline tests can establish parser and transaction correctness, but they cannot establish that retail T0023 firmware accepts Linux RFCOMM channel 1 with explicit medium security or that retained frames behave identically on the available unit.
+Version `0.1.0` is gated by physical validation. Passing that gate satisfies
+the hardware condition for a release tag; it does not by itself establish a
+broader stable-support claim. Offline tests can establish parser and transaction
+correctness, but they cannot establish that retail T0023 firmware accepts Linux
+RFCOMM channel 1 with explicit medium security or that retained frames behave
+identically on the available unit.
 
 [`hardware-validation.md`](hardware-validation.md) is the sole hardware status ledger. Its current status is `Pending`, and HW-01 through HW-16 are all `Not run`; no hardware test is claimed as passed. A release tag can pass only when that document says `Status: Passed` and every one of its sixteen rows says `Pass`.
 
@@ -621,4 +626,4 @@ The implementation conforms to this record only when all statements below are tr
 - Repository checks reject symlinks and raw mode-`160000` gitlinks.
 - Repository checks require the bounded `880x1080` PNG documentation preview and reject every other binary path.
 - A release tag remains blocked until the hardware ledger is Passed in every row, the annotated tag contains a PGP or SSH signature envelope, and GitHub cryptographically verifies that signature with `verification.verified: true` and `verification.reason: valid`.
-- The release remains Experimental even after the hardware gate passes.
+- Passing the hardware gate does not broaden the exact T0023/`00016D` scope or any support claim.

@@ -24,7 +24,7 @@ The implementation keeps these invariants from the first commit:
 - The selected address is the only persistent device datum and is stored atomically with mode `0600`.
 - Private values are nullable observations and are never fabricated or persisted.
 - The UI remains visible and useful through its generic Quickshell fallback.
-- The release remains labeled Experimental before and after the physical hardware gate; that gate authorizes an Experimental release tag, not a stable-support claim.
+- The release tag remains blocked until the physical hardware gate passes; passing that gate does not broaden the exact target or establish a stable-support claim.
 - Invalid config startup reports `config_invalid` before the final hello; accepted request IDs strictly increase for each child lifetime.
 - Every transport send has a fail-closed queued-input guard with one exception for the exact empty `01/06` control frame, while the protocol's missing sequence field remains an explicit causality limit.
 - Generic fallback is display-only, and a wall-clock rollback expires private observations.
@@ -51,7 +51,7 @@ The finished tree contains these implementation and verification files:
 | `.gitignore` | Excludes Python bytecode and `__pycache__` directories |
 | `docs/hardware-validation.md` | Authoritative Pending/Passed/Failed ledger for HW-01 through HW-16 |
 | `docs/preview.png` | Actual Omarchy layer-shell render with deterministic fixture values; documentation only |
-| `README.md` | Experimental scope, installation, use, privacy, troubleshooting, removal, and no-affiliation notice |
+| `README.md` | Target scope, hardware status, installation, use, privacy, troubleshooting, removal, and no-affiliation notice |
 | `LICENSE` | Standard MIT License text with the project copyright notice |
 
 No settings schema, package recipe, service unit, vendored dependency, icon asset, generated code, virtual environment, binary helper, submodule, raw mode-`160000` gitlink, or repository symlink is added.
@@ -65,7 +65,7 @@ No settings schema, package recipe, service unit, vendored dependency, icon asse
 3. Add minimal `Service.qml` and `Panel.qml` entry points that instantiate without host properties and become usable after delayed host injection.
 4. In `Service.qml`, declare nullable `shell` and `manifest`; do not use `required` for host-injected values.
 5. In `Panel.qml`, derive from Omarchy `Panel`, set `manageIpc: false`, keep `bar`, `moduleName`, and `settings` nullable, and render one native generic headphones glyph even when the service is null.
-6. Add `README.md` with the exact target, Experimental label, Omarchy 4 baseline, MIT license, unofficial/no-affiliation statement, and a statement that all Bluetooth management remains in Omarchy Bluetooth.
+6. Add `README.md` with the exact target, pending hardware status, Omarchy 4 baseline, MIT license, unofficial/no-affiliation statement, and a statement that all Bluetooth management remains in Omarchy Bluetooth.
 7. Create `.github/workflows/check.yml` with an initial manifest and syntax job; later steps extend the same workflow.
 
 ### Verification
@@ -367,7 +367,7 @@ Extend `tests/qml/tst_Model.qml` and the host entry-point smoke harness to prove
 5. Show the lower fresh verified left/right value in the bar and suppress the generic `Earbuds` row while component rows are present. Otherwise show the Quickshell aggregate only for the unambiguous selected connected device; in the service-null fallback, require exactly one connected exact-name paired/bonded candidate.
 6. Open and close the per-monitor panel directly from the bar button. Set `manageIpc: false`; add no external IPC handler.
 7. On `opened` changing from false to true, call `service.panelOpened()` once. Do not call it on component creation, close, generic reconnect, or state rerender.
-8. Render the fixed panel order from `architecture.md`: Experimental header, generic connection state, one battery presentation, freshness, ANC controls, and one safe next action.
+8. Render the fixed panel order from `architecture.md`: product header, generic connection state, one battery presentation, freshness, ANC controls, and one safe next action.
 9. Display unknown private fields as `Not reported`. Never render a null, invalid, stale-bar, or failed value as `0%`.
 10. Hide ANC controls until current-generation extended ANC verification succeeds. Disable them while stale, pending, disconnected, helper-failed, or expired.
 11. Render only `Off`, `ANC`, and `Awareness`; a fresh verified mode selects its matching bar glyph and short marker. A press calls `service.setAnc()` once and shows pending state until readback result.
@@ -444,7 +444,7 @@ Run QML unit tests and perform an Omarchy host smoke pass for:
 3. Add an AST-based Python import allowlist test and a socket-construction test that permits only the accepted Bluetooth family/type/protocol.
 4. Add static scans over implementation files for OpenFreebuds/Omapods runtime references, IP socket families, HTTP modules, D-Bus modules, systemd units, package recipes, detached execution, shell interpolation, channel iteration, security downgrade, retry loops, and private polling timers.
 5. Use `/usr/lib/qt6/bin/qmlformat` on temporary copies whose filenames end in `.qml`, because installed `qmlformat 1.0` has no `--check` flag.
-6. Complete `README.md` with exact install, enable, use, Experimental warning, generic fallback, privacy, config path/mode, troubleshooting, disable, removal, and optional config deletion instructions.
+6. Complete `README.md` with exact install, enable, use, pending hardware warning, generic fallback, privacy, config path/mode, troubleshooting, disable, removal, and optional config deletion instructions.
 7. State in README that the project is unofficial, is not affiliated with Huawei, supports only T0023/`00016D`, ships no Huawei/Omapods assets, performs no Bluetooth management, and performs no network access.
 8. Verify the manifest and README contain no OpenFreebuds installation instruction, helper-package instruction, AUR dependency, systemd command, or broader-model claim.
 9. Reject raw gitlinks from `git ls-files --stage`, as well as filesystem symlinks and unexpected paths. Permit only the bounded `880x1080` `docs/preview.png` as binary documentation and reject every other binary path.
@@ -536,12 +536,12 @@ automated fixtures and host smoke do not satisfy a hardware row.
 
 ### Abort conditions
 
-Stop the hardware session immediately if an unexpected pairing, authorization, reset, firmware update, account prompt, repeated disconnect, unstable audio, thermal issue, ambiguous target, differing write frame, second private-control socket, or unrecoverable starting state appears. Stop means close the current socket, send no compensating unverified command, preserve the exact failure evidence privately, and keep the release Experimental.
+Stop the hardware session immediately if an unexpected pairing, authorization, reset, firmware update, account prompt, repeated disconnect, unstable audio, thermal issue, ambiguous target, differing write frame, second private-control socket, or unrecoverable starting state appears. Stop means close the current socket, send no compensating unverified command, preserve the exact failure evidence privately, and keep the release blocked.
 
 ### Release outcome
 
-- If every HW gate passes, set the hardware ledger to `Status: Passed`, keep the release Experimental, and run the full offline gate once more. A release tag is eligible only if it is an annotated `v0.1.0` tag at that exact green commit, contains a PGP or SSH signature envelope, and GitHub cryptographically verifies that signature with `verification.verified: true` and `verification.reason: valid`.
-- If any HW gate fails or is not executed, keep the ledger `Failed` or `Pending`, block the release tag, keep `0.1.0` labeled Experimental, expose no unsupported private claim, and introduce no fallback implementation branch.
+- If every HW gate passes, set the hardware ledger to `Status: Passed` and run the full offline gate once more. A release tag is eligible only if it is an annotated `v0.1.0` tag at that exact green commit, contains a PGP or SSH signature envelope, and GitHub cryptographically verifies that signature with `verification.verified: true` and `verification.reason: valid`.
+- If any HW gate fails or is not executed, keep the ledger `Failed` or `Pending`, block the release tag, expose no unsupported private claim, and introduce no fallback implementation branch.
 - A failed gate returns implementation to the numbered step that owns the failing behavior. After the fix, rerun that step's gate, all later automated gates, and the complete hardware matrix from HW-01.
 - CI uses only its workflow token to query GitHub's verification result; it has no private signing key configured, and this plan claims no current signing readiness.
 
@@ -560,6 +560,6 @@ Implementation is complete when all of these statements are true:
 9. Every architecture failure state has a tested deterministic generic fallback.
 10. The repository contains no rejected dependency, process model, networking path, model expansion, packet API, asset, or settings schema.
 11. The physical-gate result is recorded in `docs/hardware-validation.md`; a tag requires Passed plus sixteen Pass rows, an annotated PGP or SSH signature envelope, and GitHub cryptographic verification with `verification.verified: true` and `verification.reason: valid`.
-12. The release remains Experimental regardless of the hardware-gate outcome.
+12. The exact T0023/`00016D` scope remains unchanged regardless of the hardware-gate outcome.
 
-This definition is binary. A red item leaves the implementation incomplete or the release Experimental according to Step 10; it does not authorize a compatibility workaround.
+This definition is binary. A red item leaves the implementation incomplete or the release blocked according to Step 10; it does not authorize a compatibility workaround.

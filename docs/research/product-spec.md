@@ -123,7 +123,7 @@ No usage analytics are collected. Success is determined by the acceptance tests,
 
 ### 4.2 Non-goals
 
-The following are excluded from `0.1.x` and must not appear as hidden, experimental, or disabled controls:
+The following are excluded from `0.1.x` and must not appear as hidden, provisional, or disabled controls:
 
 - General Bluetooth discovery, adapter power, pair, disconnect, forget, trust, or device renaming.
 - Support for any model other than FreeBuds Pro 5.

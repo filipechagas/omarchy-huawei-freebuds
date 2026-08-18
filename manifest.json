@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "Filipe Chagas",
   "license": "MIT",
-  "description": "Experimental battery and noise control for Huawei FreeBuds Pro 5.",
+  "description": "Battery and noise control for Huawei FreeBuds Pro 5.",
   "kinds": [
     "service",
     "bar-widget"
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "FreeBuds Pro 5",
-    "description": "Experimental battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
+    "description": "Battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
     "category": "Audio",
     "allowMultiple": false,
     "defaultSection": "right"

@@ -1,8 +1,8 @@
 # FreeBuds Pro 5 for Omarchy
 
-**Experimental:** this plugin targets only HUAWEI FreeBuds Pro 5, public model
-T0023 and private DeviceInfo model ID `00016D`. Hardware validation status is
-**Pending**. Every row from `HW-01` through `HW-16` is `Not run`.
+**Hardware validation pending:** this plugin targets only HUAWEI FreeBuds Pro 5,
+public model T0023 and private DeviceInfo model ID `00016D`. Every row from
+`HW-01` through `HW-16` is `Not run`.
 No hardware test is claimed as passed. No other model is supported; unavailable
 private access falls back to display-only generic Bluetooth status.
 
@@ -28,11 +28,10 @@ assets.
 
 ## Release Status
 
-Release `0.1.0` remains Experimental even after the hardware gate eventually
-passes. The authoritative status is
-[`docs/hardware-validation.md`](docs/hardware-validation.md), which is currently
-`Pending` with all sixteen rows `Not run`. Therefore no release tag is currently
-eligible to pass CI.
+Release `0.1.0` is gated by the authoritative
+[`docs/hardware-validation.md`](docs/hardware-validation.md) ledger, which is
+currently `Pending` with all sixteen rows `Not run`. Therefore no release tag is
+currently eligible to pass CI.
 
 A release tag can pass only when the ledger says `Status: Passed`, every
 HW-01..HW-16 row says `Pass`, and `v0.1.0` is an annotated tag on the exact

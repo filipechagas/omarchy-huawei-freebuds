@@ -23,8 +23,8 @@ FreeBuds Pro 5 support on Linux separates into four support areas:
 |---|---|---:|---|
 | Stereo music and media controls | Feasible now through BlueZ, PipeWire, and WirePlumber | High; strengthened by cached profiles and historical local A2DP/AVRCP evidence | Use the standard Linux Bluetooth audio stack without a custom audio transport |
 | HFP call audio | Standards-feasible and discovered locally | Medium; local HFP attempts include refused/not-connected results | Advertise as available by profile, not locally reliability-validated |
-| Left, right, and case battery readings | Feasible as an experimental private-protocol feature | Medium-high for packet semantics; medium-low for discovery and identity | Read only over a tightly gated RFCOMM session |
-| Off, ANC, and transparency control | Feasible as an explicit experimental feature | Medium-high for the three packets; medium-low for discovery, identity, and firmware coverage | Allow only the three retained Pro 5 writes, then verify with a readback |
+| Left, right, and case battery readings | Feasible as a constrained private-protocol feature | Medium-high for packet semantics; medium-low for discovery and identity | Read only over a tightly gated RFCOMM session |
+| Off, ANC, and transparency control | Feasible as an explicit private-protocol feature | Medium-high for the three packets; medium-low for discovery, identity, and firmware coverage | Allow only the three retained Pro 5 writes, then verify with a readback |
 
 The public evidence does **not** justify a broad "fully supported" claim. Huawei does not publish the private control protocol. The strongest public device-specific evidence is a set of retained FreeBuds Pro 5 request, response, and write frames in HuaweiPods tests. Those fixtures cover a battery response, three noise-control readbacks, and three noise-control writes. They do not cover every firmware, error response, notification, pairing state, or concurrent audio/control scenario.
 
@@ -46,7 +46,7 @@ A safe near-term result is therefore:
 - Treat battery values as timestamped observations, not durable state.
 - Do not implement ANC sub-levels, gesture configuration, EQ, low-latency mode, wear-setting writes, multipoint management, or firmware functions from the current evidence.
 
-This is sufficient for an opt-in experimental MVP. It is not sufficient for unattended background control or an unqualified stable-support promise.
+This is sufficient for an opt-in, hardware-gated MVP. It is not sufficient for unattended background control or an unqualified stable-support promise.
 
 ## Scope and non-interaction statement
 
@@ -79,7 +79,7 @@ The report uses five evidence classes. Confidence is scoped to the claim being m
 |---|---|---|---|
 | A: first-party | Huawei, Bluetooth SIG, or the owner of a standard publishes the fact | T0023, supported codecs, SPP behavior, assigned UUIDs | Product and standards facts |
 | B: upstream implementation | BlueZ, PipeWire, WirePlumber, or Linux source defines actual host behavior | `Battery1`, RFCOMM security levels, available codec names | Linux architecture and security |
-| C: retained Pro 5 capture | Public tests retain exact bytes explicitly labeled as captured from Pro 5 | Battery frame and three ANC state frames | Exact experimental protocol support |
+| C: retained Pro 5 capture | Public tests retain exact bytes explicitly labeled as captured from Pro 5 | Battery frame and three ANC state frames | Exact constrained protocol support |
 | D: implementation assertion | A project claims testing or maps a value but does not retain the corresponding raw Pro 5 evidence | Channel 1, ID `00016D`, broad OpenFreebuds feature list | Provisional gating or a lead for future capture, not a settled fact |
 | E: local observation | Read-only inspection of disconnected cache, historical host records, and host software | Cached UUIDs, prior A2DP/AVRCP events, installed codec modules | Local corroboration only; never upgrades an unknown packet/channel/codec meaning by itself |
 
@@ -134,7 +134,7 @@ The Bluetooth SIG describes A2DP as the profile for high-quality audio distribut
 | Stereo music playback | A2DP, with the computer acting as source and earbuds as sink | BlueZ + PipeWire + WirePlumber |
 | Call audio and headset signaling | HFP, normally computer as Audio Gateway and earbuds as Hands-Free unit | BlueZ + PipeWire |
 | Play/pause, track, and volume controls | AVRCP plus PipeWire session integration | BlueZ + PipeWire/WirePlumber |
-| Huawei settings and component battery | No public standard mapping established | Experimental private RFCOMM client |
+| Huawei settings and component battery | No public standard mapping established | Private RFCOMM client |
 
 PipeWire's current Bluetooth property reference lists `a2dp_sink`, `a2dp_source`, `hfp_hf`, and `hfp_ag` roles and lists enabled codec names including SBC, SBC-XQ, AAC, LDAC, aptX variants, LC3, and Opus variants.[^pw-props] WirePlumber exposes those monitor properties and profile auto-connect rules; it documents that all available codecs are enabled by default unless configured otherwise.[^wp-bluetooth]
 
@@ -171,7 +171,7 @@ OpenFreebuds opens an `AF_BLUETOOTH`, `SOCK_STREAM`, `BTPROTO_RFCOMM` socket and
 - The actual Pro 5 SDP UUID/channel tuple remains unverified in public raw evidence.
 - A Linux client must not scan channels 1 through 8 or try unrelated SDP UUIDs.
 - A future hardware pass should retain the actual SDP service record.
-- Until then, channel 1 may be used only behind explicit experimental support and the identity/readback gates described below.
+- Until then, channel 1 may be used only behind explicit opt-in support and the identity/readback gates described below.
 
 The disconnected local target's cached `Device1.UUIDs` includes the standard SerialPort UUID `00001101-0000-1000-8000-00805f9b34fb`. This strengthens the conclusion that this unit previously advertised an SPP-class service. Because `ServicesResolved=false` in the snapshot and no raw SDP record was retained, it does not establish the current service state or server channel. It also does not promote OpenFreebuds' channel-1 assertion from class D to captured fact.
 
@@ -181,7 +181,7 @@ BlueZ `org.bluez.Device1` exposes cached remote UUIDs and read-only `Paired`, `B
 
 This distinction matters. The application should inspect `Device1` but should not call `Pair()`, write `Trusted`, or call broad `Connect()`/`Disconnect()`. Pairing belongs to the desktop's normal UI and agent.
 
-The Bluetooth SIG Battery Service exposes level and related information for a battery within a device, but its existence on this model has not been established.[^bas] BlueZ `org.bluez.Battery1` exposes one read-only byte `Percentage` and an optional informational `Source`.[^bluez-battery] BlueZ's built-in GATT battery plugin looks specifically for Battery Service UUID `0x180F` and registers its value with source `GATT Battery Service`.[^bluez-battery-plugin] PipeWire can also derive one headset battery percentage from HFP indicators such as `AT+BIEV`, `AT+XEVENT=BATTERY`, and `AT+IPHONEACCEV`, then publish it through BlueZ's experimental Battery Provider API.[^pw-hfp-battery][^pw-battery-provider]
+The Bluetooth SIG Battery Service exposes level and related information for a battery within a device, but its existence on this model has not been established.[^bas] BlueZ `org.bluez.Battery1` exposes one read-only byte `Percentage` and an optional informational `Source`.[^bluez-battery] BlueZ's built-in GATT battery plugin looks specifically for Battery Service UUID `0x180F` and registers its value with source `GATT Battery Service`.[^bluez-battery-plugin] PipeWire can also derive one headset battery percentage from HFP indicators such as `AT+BIEV`, `AT+XEVENT=BATTERY`, and `AT+IPHONEACCEV`, then publish it through BlueZ's unstable Battery Provider API.[^pw-hfp-battery][^pw-battery-provider]
 
 BlueZ exposes `BatteryProviderManager1` on the local adapter, which proves only that the host can accept a provider. In the disconnected target snapshot there was no target `Battery1`, target battery-provider object, GATT child, current UPower device, cached Battery Service UUID, `ManufacturerData`, or `ServiceData`. `ServicesResolved=false` means this absence cannot establish what appears during a live connection. Historical UPower files contain only connection-timestamped `0.000`/`unknown` samples; those samples must not be displayed as zero-percent battery.
 
@@ -198,7 +198,7 @@ BlueZ also exposes remote GATT characteristics through `org.bluez.GattCharacteri
 
 ## Capability matrix
 
-`Yes` means evidence supports an implementation decision. `Experimental` means exact scope and guards are mandatory. `No` means deliberately excluded, not necessarily that the product lacks the feature.
+`Yes` means evidence supports an implementation decision. `Constrained` means exact scope and guards are mandatory. `No` means deliberately excluded, not necessarily that the product lacks the feature.
 
 | Capability | Product evidence | Pro 5 protocol evidence | Linux support | MVP decision |
 |---|---|---|---|---|
@@ -206,18 +206,18 @@ BlueZ also exposes remote GATT characteristics through `org.bluez.GattCharacteri
 | Stereo playback | A2DP 1.3; product codecs listed | Not needed | Cached Audio Sink/A2DP UUIDs, historical A2DP fd readiness, persistent `a2dp-sink` | Yes |
 | Call audio | HFP 1.7 | Not needed | Hands-Free UUID cached; historical attempts sometimes refused/not connected | Discovered, but local reliability unvalidated |
 | Media controls | AVRCP 1.6; controls documented | Not needed | Cached AVRCP UUIDs and historical kernel input creation | Yes |
-| Private SPP transport | SPP UUID cached on the local target | No raw SDP record/channel capture | Direct RFCOMM available; channel 1 remains an implementation assertion | Experimental only |
+| Private SPP transport | SPP UUID cached on the local target | No raw SDP record/channel capture | Direct RFCOMM available; channel 1 remains an implementation assertion | Constrained only |
 | SBC | Huawei lists support | Not needed | Host module installed; peer negotiation not recorded | Yes, only if negotiated |
 | AAC | Huawei lists support | Not needed | Host module installed; peer negotiation not recorded | Yes, only if negotiated |
 | LDAC | Huawei lists support | Not needed | Host module links `libldac`; peer negotiation not recorded | Yes, only if negotiated |
 | L2HC | Huawei lists support | None | No implementation found in examined stock stack | No |
 | NearLink E2.0 | Huawei China page lists it separately | None | No implementation found | No |
 | One host battery percentage | Huawei documents host displays | Source on Pro 5 unknown | No live target `Battery1`; UPower history is `0.000`/`unknown` | Hide until a live value is cross-validated |
-| Left/right/case percentages | Huawei app documents component display | Exact Pro 5 battery frame retained | Direct RFCOMM | Experimental read-only |
-| Per-component charging flags | Product has rechargeable components | Pro 5 frame has three captured bytes in TLV `03`; zero observed | Direct RFCOMM | Experimental read-only; nonzero semantics need capture coverage |
-| Earbud in/out-of-case state | Product has case and wear behavior | Pro 5 tests label TLV `05`: `0` out, `1` in | Direct RFCOMM | Experimental read-only |
-| Read current noise-control mode | ANC/transparency official | Three exact Pro 5 response frames retained | Direct RFCOMM | Experimental |
-| Set Off/ANC/Transparency | Modes official | Three exact Pro 5 writes retained | Direct RFCOMM | Experimental, user initiated and readback verified |
+| Left/right/case percentages | Huawei app documents component display | Exact Pro 5 battery frame retained | Direct RFCOMM | Constrained read-only |
+| Per-component charging flags | Product has rechargeable components | Pro 5 frame has three captured bytes in TLV `03`; zero observed | Direct RFCOMM | Constrained read-only; nonzero semantics need capture coverage |
+| Earbud in/out-of-case state | Product has case and wear behavior | Pro 5 tests label TLV `05`: `0` out, `1` in | Direct RFCOMM | Constrained read-only |
+| Read current noise-control mode | ANC/transparency official | Three exact Pro 5 response frames retained | Direct RFCOMM | Constrained |
+| Set Off/ANC/Transparency | Modes official | Three exact Pro 5 writes retained | Direct RFCOMM | Constrained, user initiated and readback verified |
 | Discrete ANC strength | Advanced ANC official at a product level | No retained Pro 5 write/read mapping; HuaweiPods intentionally leaves it disabled | None standard | No |
 | Voice-transparency submode | Human Voice Transparency official | No retained Pro 5 command corpus beyond generic transparency | None standard | No |
 | Wear-detection setting | Feature official | OpenFreebuds claim only for private configuration | None standard established | Observe standard playback behavior only; no setting writes |
@@ -371,7 +371,7 @@ The route policy maps `00016D` to `HUAWEI_FREEBUDS_PRO5` and comments that only 
 
 OpenFreebuds instead dispatches its Pro 5 driver by the Bluetooth name `HUAWEI FreeBuds Pro 5` and assigns channel 1.[^ofb-pro5][^ofb-driver-map] A display name alone is not a safe protocol capability gate.
 
-### Provisional gate for an experimental MVP
+### Provisional gate for a hardware-gated MVP
 
 Use a monotonic state machine. Never infer a later state from a timeout or default value.
 
@@ -381,8 +381,8 @@ Use a monotonic state machine. Never infer a later state from a timeout or defau
 | `Selected` | User explicitly selects one already paired/bonded device | Read cached BlueZ metadata; no private write |
 | `SecureTransport` | One RFCOMM channel-1 connection succeeds with explicit medium security | DeviceInfo query only |
 | `IdentityProvisional` | Strict DeviceInfo parser returns `00016D`; no conflicting valid identity | Battery and ANC-state reads |
-| `ReadVerified` | At least one CRC-valid response has a Pro 5-retained shape: component battery with valid tag `05`, or extended ANC response with tag `02 01 05` | Show experimental read data |
-| `WriteEnabled` | User separately enables experimental controls and a fresh ANC state read succeeds | Three exact mode writes, one at a time, with readback |
+| `ReadVerified` | At least one CRC-valid response has a Pro 5-retained shape: component battery with valid tag `05`, or extended ANC response with tag `02 01 05` | Show gated read data |
+| `WriteEnabled` | User separately enables private controls and a fresh ANC state read succeeds | Three exact mode writes, one at a time, with readback |
 | `Faulted` | Security downgrade, bad CRC threshold, malformed known TLV, identity conflict, timeout during verification, or post-write mismatch | Close transport; no more writes until explicit retry |
 
 Additional rules:
@@ -882,7 +882,7 @@ Linux revision: `0f23d56f17fdfc7db69d51f64c8b91bbab947aa9`, 2026-08-17.
 
 ## Final recommendation
 
-Proceed with a staged Linux implementation only if the product is presented honestly as experimental private-protocol support:
+Proceed with a staged Linux implementation only if the product is presented honestly as constrained, hardware-gated private-protocol support:
 
 1. Build standard audio integration by observing, not replacing, BlueZ/PipeWire/WirePlumber.
 2. Implement and exhaustively test the strict offline framer and fixture corpus.
