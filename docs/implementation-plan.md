@@ -14,19 +14,19 @@ The implementation keeps these invariants from the first commit:
 
 - The only hardware target is HUAWEI FreeBuds Pro 5, public model T0023, private DeviceInfo model ID `00016D`.
 - Omarchy schema-v1 `service` and `bar-widget` entry points are the complete host integration.
-- Quickshell Bluetooth is the only authority for generic adapter, paired/bonded, connected, and aggregate-battery state.
+- Quickshell Bluetooth is the only authority for generic adapter, paired/bonded, connected, and fallback aggregate-battery state.
 - One attached Python 3 standard-library child handles strict framing and bounded private transactions.
 - The child creates only `AF_BLUETOOTH` RFCOMM sockets, always on channel 1 with `BT_SECURITY_MEDIUM`.
 - Device contact occurs only for panel-open refresh, explicit `Retry`, and explicit ANC actions.
 - Every private transaction uses a new socket, repeats identity verification, permits one outstanding request, performs no automatic retry, and closes in `finally`.
-- The three ANC writes are immutable captured frames and succeed only after matching readback.
+- The three ANC writes are immutable captured frames and succeed only after an exact zero-status acknowledgement and matching readback.
 - There is no OpenFreebuds integration, Omapods reuse, systemd unit, helper package, AUR dependency, IP networking, detached execution, Bluetooth management, channel scan, persistent socket, polling, notification subscription, reconnect contact, automatic write, or automatic write replay.
 - The selected address is the only persistent device datum and is stored atomically with mode `0600`.
 - Private values are nullable observations and are never fabricated or persisted.
 - The UI remains visible and useful through its generic Quickshell fallback.
 - The release remains labeled Experimental before and after the physical hardware gate; that gate authorizes an Experimental release tag, not a stable-support claim.
 - Invalid config startup reports `config_invalid` before the final hello; accepted request IDs strictly increase for each child lifetime.
-- Every transport send has a fail-closed queued-input guard, while the protocol's missing sequence field remains an explicit causality limit.
+- Every transport send has a fail-closed queued-input guard with one exception for the exact empty `01/06` control frame, while the protocol's missing sequence field remains an explicit causality limit.
 - Generic fallback is display-only, and a wall-clock rollback expires private observations.
 
 If implementation evidence contradicts an accepted decision, work stops at the current gate. The contradiction is recorded and `architecture.md` is revised through a separate architecture decision before implementation resumes. No fallback dependency, model, channel, security level, transport, or command is introduced inside an implementation step.
@@ -184,7 +184,7 @@ python3 -m unittest tests.python.test_framer -v
 - Each requested mode selects exactly its retained frame.
 - Already-active mode sends zero write frames.
 - Matching readback commits success.
-- Missing, malformed, timed-out, and mismatching readback never commit success or replay the write.
+- Missing, malformed, rejected, or timed-out acknowledgement and missing, malformed, timed-out, or mismatching readback never commit success or replay the write.
 - Connect, response, and total deadlines each fault once and close once.
 - EOF, busy channel, unexpected response, bad frame, and disconnect close once and do not retry.
 - A transaction creates one socket; completion leaves no socket referenced by the controller.
@@ -197,7 +197,7 @@ python3 -m unittest tests.python.test_transactions -v
 
 ### Exit gate
 
-- Tests prove fixed channel 1, mandatory medium security, same-transaction identity, one outstanding request, pre-send queued-input rejection, no retry, and unconditional close.
+- Tests prove fixed channel 1, mandatory medium security, same-transaction identity, one outstanding request, exact-control-frame handling at send and response boundaries, rejection of other queued input, no retry, and unconditional close.
 - No production function accepts a channel, security level, raw frame, retry count, or alternate model as an argument.
 - The transaction controller contains no sleep loop, reconnect loop, polling timer, or notification path.
 
@@ -265,7 +265,7 @@ python3 -m unittest discover -s tests/python -v
 1. Add `Model.js` with pure functions only; it imports no QML module and accesses no QObjects, files, process, timer, or socket.
 2. Define primitive candidate rows containing opaque address key, device name, display label, paired, bonded, connected, `batteryAvailable`, and battery fraction.
 3. Match candidates only when immutable `deviceName` equals `HUAWEI FreeBuds Pro 5` and paired and bonded are true. Alias affects display text only.
-4. Validate generic aggregate battery as finite `0.0..1.0` and format `Math.round(value * 100)`; do not use private fields as a fallback aggregate.
+4. Validate generic aggregate battery as finite `0.0..1.0` and format `Math.round(value * 100)`; use it only when verified component battery data is unavailable.
 5. Validate bridge hello/result/error objects, exact protocol version, exact request/generation match, nullable fields, integer percentages in `0..100`, and the three ANC modes.
 6. Implement deterministic reduction for helper phase, generic plane, selection intent, request pending, private observations, feature errors, and last safe user message.
 7. Implement nondecreasing private age, fresh through 130 seconds, stale through 10 minutes, and expired afterward. Any wall-clock rollback relative to the previous aging sample expires private data immediately.
@@ -288,7 +288,7 @@ python3 -m unittest discover -s tests/python -v
 - ANC controls exposed only for current-generation valid extended ANC state.
 - Generation, request ID, address, helper restart, disconnect, adapter loss, and selection changes reject stale values.
 - Fresh at 130 seconds, stale at 131 seconds, expired after 10 minutes, and expired immediately on wall-clock rollback.
-- Private data never becomes a generic aggregate or a fabricated component.
+- Fresh verified left/right data produces the lower-bud bar metric without becoming a generic aggregate or fabricated component; case is excluded.
 - Every documented failure produces its fixed message without an address or raw error payload.
 
 ### Verification
@@ -361,16 +361,16 @@ Extend `tests/qml/tst_Model.qml` and the host entry-point smoke harness to prove
 ### Changes
 
 1. Implement `Panel.qml` with Omarchy's native `Panel`, `BarIconButton`, typography, spacing, color, focus, tooltip, and action components.
-2. Use only a host-supplied generic monochrome headphones glyph. Add no image, logo, custom icon, font, animation asset, or copied QML.
+2. Use only host-supplied monochrome audio glyphs. Add no image, logo, custom icon, font, animation asset, or copied QML.
 3. Retrieve the singleton reactively through `bar?.shell?.serviceFor(moduleName)` and keep a direct read-only Quickshell projection for the service-null generic fallback.
 4. Make the bar control visible in every adapter, service, child, device, and private state.
-5. Show the generic Quickshell aggregate only for the unambiguous selected connected device. In the service-null fallback, show it only when exactly one connected exact-name paired/bonded candidate exists.
+5. Show the lower fresh verified left/right value in the bar and suppress the generic `Earbuds` row while component rows are present. Otherwise show the Quickshell aggregate only for the unambiguous selected connected device; in the service-null fallback, require exactly one connected exact-name paired/bonded candidate.
 6. Open and close the per-monitor panel directly from the bar button. Set `manageIpc: false`; add no external IPC handler.
 7. On `opened` changing from false to true, call `service.panelOpened()` once. Do not call it on component creation, close, generic reconnect, or state rerender.
-8. Render the fixed panel order from `architecture.md`: Experimental header, generic connection state, generic Earbuds aggregate, private component observations, freshness, ANC controls, and one safe next action.
+8. Render the fixed panel order from `architecture.md`: Experimental header, generic connection state, one battery presentation, freshness, ANC controls, and one safe next action.
 9. Display unknown private fields as `Not reported`. Never render a null, invalid, stale-bar, or failed value as `0%`.
 10. Hide ANC controls until current-generation extended ANC verification succeeds. Disable them while stale, pending, disconnected, helper-failed, or expired.
-11. Render only `Off`, `ANC`, and `Awareness`. A press calls `service.setAnc()` once and shows pending state until readback result.
+11. Render only `Off`, `ANC`, and `Awareness`; a fresh verified mode selects its matching bar glyph and short marker. A press calls `service.setAnc()` once and shows pending state until readback result.
 12. Render exact-name candidates without displaying addresses. With multiple candidates, selecting a row calls `markCandidate` only; the separate `Retry` action performs verification.
 13. Provide `Choose another device` as a local selection-clear action. It performs no BlueZ operation.
 14. Provide no Pair, Connect, Disconnect, Forget, Scan, adapter-power, trust, profile, codec, EQ, gesture, wear, latency, multipoint, firmware, OpenFreebuds, or raw-packet control.
@@ -385,7 +385,7 @@ Run QML unit tests and perform an Omarchy host smoke pass for:
 - Adapter absent, adapter off, no candidate, one disconnected candidate, one connected candidate, multiple candidates, and persisted-address absent states.
 - Generic battery absent, zero, low, full, and invalid.
 - Valid components, partial components, stale components, expired components, and refresh failure.
-- Valid ANC state, pending action, already-active action, matching readback, missing readback, and mismatching readback.
+- Valid ANC state, pending action, already-active action, exact write acknowledgement, matching readback, missing acknowledgement/readback, and mismatching readback.
 - Keyboard-only operation, narrow panel width, host scaling, and two-monitor panel switching.
 - No QML warnings, binding loops, destroyed-QObject access, duplicate process, duplicate trigger, or blocked shell frame.
 
@@ -554,7 +554,7 @@ Implementation is complete when all of these statements are true:
 3. One shell owns one attached Python child and zero idle RFCOMM sockets.
 4. Static and dynamic tests prove that only panel-open, Retry, and explicit ANC actions contact the private channel.
 5. Every contact uses channel 1, medium security, same-transaction `00016D`, a retained Pro 5 shape, one outstanding request, bounded deadlines, and unconditional close.
-6. Every ANC success has matching readback; no failure path retries or replays a write.
+6. Every ANC success has an exact zero-status acknowledgement and matching readback; no failure path retries or replays a write.
 7. Quickshell remains authoritative for generic state and the UI performs no Bluetooth mutation.
 8. Selection persistence is atomic mode `0600`; no private observation is persisted or fabricated.
 9. Every architecture failure state has a tested deterministic generic fallback.

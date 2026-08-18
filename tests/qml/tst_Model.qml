@@ -220,6 +220,7 @@ TestCase {
         var one = Model.fallbackView(generic([device(addressA, { battery: 0 })]))
         compare(one.connected, true)
         compare(one.aggregatePercent, 0)
+        compare(one.showAggregateBattery, true)
         compare(one.barPercentText, "0%")
 
         var disconnected = Model.fallbackView(generic([device(addressA, { connected: false })]))
@@ -726,6 +727,41 @@ TestCase {
         compare(Model.ancCapability(failed).visible, false)
     }
 
+    function test_barReportsOnlyFreshVerifiedAncMode() {
+        var expectations = {
+            off: { text: "OFF", spoken: "off" },
+            anc: { text: "ANC", spoken: "noise cancellation" },
+            awareness: { text: "AWR", spoken: "awareness" }
+        }
+        var modes = Object.keys(expectations)
+        for (var i = 0; i < modes.length; i++) {
+            var mode = modes[i]
+            var state = withPrivateState(addressA, [device(addressA)], { anc: mode })
+            var view = Model.deriveView(state)
+            compare(view.barAncMode, mode)
+            compare(view.barAncText, expectations[mode].text)
+            verify(view.barAccessibleName.indexOf("noise control " + expectations[mode].spoken) >= 0)
+            verify(view.barTooltip.indexOf("Noise control: " + expectations[mode].text) >= 0)
+        }
+
+        var stale = withPrivateState(addressA, [device(addressA)])
+        stale = Model.reduce(stale, { type: "age", nowMs: 132000 })
+        compare(Model.deriveView(stale).barAncMode, "")
+        compare(Model.deriveView(stale).barAncText, "")
+
+        var changing = withPrivateState(addressA, [device(addressA)])
+        changing = Model.reduce(changing, {
+            type: "request_started",
+            pending: pending(changing, "set_anc", addressA, false)
+        })
+        compare(Model.deriveView(changing).barAncMode, "")
+        compare(Model.deriveView(changing).barAncText, "")
+
+        var fallback = Model.fallbackView(generic([device(addressA)]))
+        compare(fallback.barAncMode, "")
+        compare(fallback.barAncText, "")
+    }
+
     function test_batteryOnlyAndAncOnlyViewsStayCapabilityGated() {
         var batteryOnly = withPrivateState(addressA, [device(addressA)], {
             anc: null,
@@ -750,7 +786,7 @@ TestCase {
         compare(view.primaryAction, "retry")
     }
 
-    function test_privateBatteryNeverBecomesGenericAggregate() {
+    function test_freshPrivateBatteryTakesPrecedenceOverGenericSummary() {
         var noGeneric = device(addressA, { batteryAvailable: false, battery: 0 })
         var state = withPrivateState(addressA, [noGeneric], {
             left: 100,
@@ -759,15 +795,26 @@ TestCase {
         })
         var view = Model.deriveView(state)
         compare(view.aggregatePercent, null)
-        compare(view.barPercentText, "")
+        compare(view.showAggregateBattery, false)
+        compare(view.barPercentText, "99%")
         compare(view.batteryRows[0].text, "100%")
 
-        var genericValue = withPrivateState(addressA, [device(addressA, { battery: 0.42 })], {
-            left: 100,
-            right: 99,
-            case: 85
+        var genericValue = withPrivateState(addressA, [device(addressA, { battery: 1 })], {
+            left: 97,
+            right: 96,
+            case: 54
         })
-        compare(Model.deriveView(genericValue).aggregatePercent, 42)
+        view = Model.deriveView(genericValue)
+        compare(view.aggregatePercent, 100)
+        compare(view.showAggregateBattery, false)
+        compare(view.barPercentText, "96%")
+        verify(view.barAccessibleName.indexOf("lowest earbud 96 percent") >= 0)
+        verify(view.barTooltip.indexOf("Lowest earbud 96%") >= 0)
+
+        genericValue = Model.reduce(genericValue, { type: "age", nowMs: 132000 })
+        view = Model.deriveView(genericValue)
+        compare(view.showAggregateBattery, false)
+        compare(view.barPercentText, "")
     }
 
     function test_mismatchingAncReadbackIsObservedButFailed() {

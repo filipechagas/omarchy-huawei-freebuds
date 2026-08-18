@@ -286,6 +286,7 @@ class DeterministicMutationTests(unittest.TestCase):
         random_source = random.Random(0x00016D)
         corpus = [
             bridge.STARTUP_FRAME,
+            bridge.ANC_WRITE_ACK,
             *bridge.RETAINED_FRAMES,
             CAPTURED_BATTERY,
             *CAPTURED_ANC.values(),

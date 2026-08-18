@@ -7,11 +7,14 @@ No hardware test is claimed as passed. No other model is supported; unavailable
 private access falls back to display-only generic Bluetooth status.
 
 The plugin adds an always-visible Omarchy 4 bar widget. Quickshell supplies
-paired, connected, adapter, and aggregate `Earbuds` battery state. A bundled,
-standard-library Python bridge implements gated left, right, and case battery
-reads and only `Off`, `ANC`, or `Awareness` writes, with a fresh readback
-required for success. Those private paths have not passed physical hardware
-validation.
+paired, connected, adapter, and fallback `Earbuds` battery state. After a fresh
+verified component read, the panel shows only left, right, and case values and
+the bar uses the lower earbud percentage; the case is never part of that compact
+value. The widget also shows a verified `OFF`, `ANC`, or `AWR` mode with a
+matching dynamic glyph. A bundled, standard-library Python bridge implements
+gated battery reads and only `Off`, `ANC`, or `Awareness` writes, with a fresh
+readback required for success. Those private paths have not passed physical
+hardware validation.
 
 ![FreeBuds Pro 5 Omarchy panel preview](docs/preview.png)
 
@@ -84,8 +87,9 @@ installation or updates.
    refresh for one eligible connected device.
 3. If several exact-name candidates exist, select one locally and press
    `Retry`. Selecting a row alone does not contact or save the device.
-4. Read the generic `Earbuds` percentage from Quickshell. Verified private
-   observations appear separately as left, right, and case values.
+4. With a verified component read, use the left, right, and case rows; the bar
+   shows the lower left/right value and omits the case. Otherwise the plugin
+   falls back to Quickshell's generic `Earbuds` percentage.
 5. Use `Off`, `ANC`, or `Awareness` only when those controls appear. A change is
    reported successful only after matching readback from the same bounded
    transaction.
@@ -131,7 +135,8 @@ Generic Quickshell status remains available when private access fails.
 | Private bridge unavailable, stopped, or rejected its protocol | Press `Retry` once. The plugin does not restart it automatically. |
 | Secure private channel unavailable, busy, refused, or timed out | Normal audio and generic status remain usable. Press `Retry`; no lower security or alternate channel is attempted. |
 | Device is not verified or capabilities are not verified | Confirm the device is T0023. Other models are intentionally unsupported; choose another device if needed. |
-| Component battery or noise control is not reported | Keep using the generic `Earbuds` value and press `Retry` if private data is needed. Missing data is never shown as `0%`. |
+| Component battery is not reported | Keep using the generic `Earbuds` fallback and press `Retry` if component data is needed. Missing data is never shown as `0%`. |
+| Noise control is not reported | Battery state remains available. Press `Retry` if noise control is needed. |
 | Private data is out of date | Press `Retry`. Aging itself performs no Bluetooth traffic. |
 | Saved selection is invalid | Disable the plugin, remove the optional selection file shown below, re-enable, select the device, and press `Retry`. |
 

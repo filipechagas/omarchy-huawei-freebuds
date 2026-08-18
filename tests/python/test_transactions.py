@@ -17,6 +17,7 @@ CAPTURED_ANC = {
     "anc": bytes.fromhex("5A000A002B2A010203010201052025"),
     "awareness": bytes.fromhex("5A000A002B2A0102020202010511A8"),
 }
+CAPTURED_ANC_WRITE_ACK = bytes.fromhex("5A0006002B040201003171")
 
 
 def no_prior_input(_active_socket):
@@ -315,7 +316,7 @@ class RfcommTransportPolicyTests(unittest.TestCase):
                     transport.receive_frame(2.0)
                 transport.close()
 
-    def test_segmented_queued_successor_faults_before_next_send_without_drain(self):
+    def test_segmented_queued_successor_faults_before_next_send(self):
         for queued_successor in (CAPTURED_BATTERY, b"\x5A"):
             fake_socket = FakeSocket(recv_chunks=[identity(), queued_successor])
             readiness_results = iter((False, True))
@@ -341,19 +342,48 @@ class RfcommTransportPolicyTests(unittest.TestCase):
                 if event in ("readiness", "close")
                 or (isinstance(event, tuple) and event[0] in ("connect", "sendall", "recv"))
             ]
+            self.assertEqual(protocol_events[0], ("connect", (ADDRESS, bridge.RFCOMM_CHANNEL)))
+            sends = [
+                event[1]
+                for event in protocol_events
+                if isinstance(event, tuple) and event[0] == "sendall"
+            ]
             self.assertEqual(
-                protocol_events,
-                [
-                    ("connect", (ADDRESS, bridge.RFCOMM_CHANNEL)),
-                    ("recv", bridge.MAX_FRAME_BYTES),
-                    "readiness",
-                    ("sendall", bridge.DEVICE_INFO_QUERY),
-                    ("recv", bridge.MAX_FRAME_BYTES),
-                    "readiness",
-                    "close",
-                ],
+                sends,
+                [bridge.DEVICE_INFO_QUERY],
             )
-            self.assertEqual(fake_socket.recv_chunks, [queued_successor])
+            self.assertEqual(protocol_events[-1], "close")
+
+    def test_ready_empty_control_frame_is_consumed_before_next_send(self):
+        fake_socket = FakeSocket(
+            recv_chunks=[
+                identity(),
+                STARTUP_FRAME,
+                CAPTURED_BATTERY,
+                CAPTURED_ANC["off"],
+            ]
+        )
+        readiness_results = iter((False, True, False, False))
+
+        def readiness(active_socket):
+            self.assertIs(active_socket, fake_socket)
+            return next(readiness_results)
+
+        patches = self.socket_constants()
+        with patches[0], patches[1], patches[2], patches[3]:
+            transport = bridge.RfcommTransport(
+                socket_factory=lambda *_: fake_socket,
+                readiness=readiness,
+            )
+            result = bridge.TransactionController(lambda: transport).refresh(ADDRESS)
+
+        self.assertTrue(result["readVerified"])
+        sent = [
+            event[1]
+            for event in fake_socket.events
+            if isinstance(event, tuple) and event[0] == "sendall"
+        ]
+        self.assertEqual(sent, [bridge.DEVICE_INFO_QUERY, bridge.BATTERY_QUERY, bridge.ANC_QUERY])
 
     def test_no_sequence_protocol_cannot_prove_causality_after_send_boundary(self):
         fake_socket = FakeSocket(
@@ -377,6 +407,52 @@ class RfcommTransportPolicyTests(unittest.TestCase):
         # after each boundary remains indistinguishable from a causal reply.
         self.assertTrue(result["readVerified"])
         self.assertEqual(boundary_calls, [fake_socket, fake_socket, fake_socket])
+
+    def test_exact_empty_control_frames_are_consumed_around_expected_replies(self):
+        fake_socket = FakeSocket(
+            recv_chunks=[
+                STARTUP_FRAME,
+                identity(),
+                CAPTURED_BATTERY + STARTUP_FRAME,
+                STARTUP_FRAME,
+                CAPTURED_ANC["anc"],
+            ]
+        )
+        patches = self.socket_constants()
+        with patches[0], patches[1], patches[2], patches[3]:
+            transport = bridge.RfcommTransport(
+                socket_factory=lambda *_: fake_socket,
+                readiness=no_prior_input,
+            )
+            result = bridge.TransactionController(lambda: transport).refresh(ADDRESS)
+
+        self.assertTrue(result["readVerified"])
+        self.assertEqual(result["battery"]["left"], 100)
+        self.assertEqual(result["anc"]["mode"], "anc")
+        sent = [
+            event[1]
+            for event in fake_socket.events
+            if isinstance(event, tuple) and event[0] == "sendall"
+        ]
+        self.assertEqual(sent, [bridge.DEVICE_INFO_QUERY, bridge.BATTERY_QUERY, bridge.ANC_QUERY])
+
+    def test_duplicate_empty_control_frames_fault_without_resending(self):
+        fake_socket = FakeSocket(recv_chunks=[STARTUP_FRAME + STARTUP_FRAME, identity()])
+        patches = self.socket_constants()
+        with patches[0], patches[1], patches[2], patches[3]:
+            transport = bridge.RfcommTransport(
+                socket_factory=lambda *_: fake_socket,
+                readiness=no_prior_input,
+            )
+            with self.assertRaisesRegex(bridge.BridgeError, "unexpected_response"):
+                bridge.TransactionController(lambda: transport).refresh(ADDRESS)
+
+        sent = [
+            event[1]
+            for event in fake_socket.events
+            if isinstance(event, tuple) and event[0] == "sendall"
+        ]
+        self.assertEqual(sent, [bridge.DEVICE_INFO_QUERY])
 
     def test_missing_security_constants_prevent_socket_construction_and_connect(self):
         constructed = []
@@ -571,7 +647,14 @@ class AncTransactionTests(unittest.TestCase):
             "awareness": bridge.SET_ANC_AWARENESS,
         }
         for requested, initial in initial_modes.items():
-            transport = ScriptedTransport([identity(), CAPTURED_ANC[initial], CAPTURED_ANC[requested]])
+            transport = ScriptedTransport(
+                [
+                    identity(),
+                    CAPTURED_ANC[initial],
+                    CAPTURED_ANC_WRITE_ACK,
+                    CAPTURED_ANC[requested],
+                ]
+            )
             controller, factory = self.controller(transport)
             with self.subTest(requested=requested):
                 result = controller.set_anc(ADDRESS, requested)
@@ -584,6 +667,37 @@ class AncTransactionTests(unittest.TestCase):
                 self.assertEqual(result["anc"]["mode"], requested)
                 self.assertEqual(factory.calls, 1)
                 self.assertEqual(transport.close_calls, 1)
+
+    def test_write_ack_is_consumed_before_matching_readback(self):
+        transport = ScriptedTransport(
+            [
+                identity(),
+                CAPTURED_ANC["off"],
+                CAPTURED_ANC_WRITE_ACK,
+                CAPTURED_ANC["anc"],
+            ]
+        )
+        controller, _ = self.controller(transport)
+
+        result = controller.set_anc(ADDRESS, "anc")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["anc"]["mode"], "anc")
+        self.assertEqual(
+            transport.events,
+            [
+                "connect",
+                ("send", bridge.DEVICE_INFO_QUERY),
+                "receive",
+                ("send", bridge.ANC_QUERY),
+                "receive",
+                ("send", bridge.SET_ANC_ON),
+                "receive",
+                ("send", bridge.ANC_QUERY),
+                "receive",
+                "close",
+            ],
+        )
 
     def test_already_active_mode_sends_no_write_or_readback_query(self):
         transport = ScriptedTransport([identity(), CAPTURED_ANC["anc"]])
@@ -617,6 +731,27 @@ class AncTransactionTests(unittest.TestCase):
             ],
         )
 
+    def test_missing_malformed_or_rejected_write_acks_never_query_readback(self):
+        damaged = bytearray(CAPTURED_ANC_WRITE_ACK)
+        damaged[-1] ^= 1
+        ack_failures = (
+            bridge.BridgeError("socket_closed"),
+            bytes(damaged),
+            bridge.BridgeError("timeout"),
+            frame(0x2B, 0x04, [(0x02, b"\x01")]),
+            CAPTURED_ANC["anc"],
+        )
+        for failure in ack_failures:
+            transport = ScriptedTransport([identity(), CAPTURED_ANC["off"], failure])
+            controller, factory = self.controller(transport)
+            with self.subTest(failure=repr(failure)):
+                with self.assertRaisesRegex(bridge.BridgeError, "anc_send_failed"):
+                    controller.set_anc(ADDRESS, "anc")
+                self.assertEqual(transport.sent.count(bridge.SET_ANC_ON), 1)
+                self.assertEqual(transport.sent.count(bridge.ANC_QUERY), 1)
+                self.assertEqual(factory.calls, 1)
+                self.assertEqual(transport.close_calls, 1)
+
     def test_missing_malformed_and_timed_out_readbacks_never_replay(self):
         damaged = bytearray(CAPTURED_ANC["anc"])
         damaged[-1] ^= 1
@@ -627,7 +762,9 @@ class AncTransactionTests(unittest.TestCase):
             INVALID_ANC_SHAPE,
         )
         for failure in readback_failures:
-            transport = ScriptedTransport([identity(), CAPTURED_ANC["off"], failure])
+            transport = ScriptedTransport(
+                [identity(), CAPTURED_ANC["off"], CAPTURED_ANC_WRITE_ACK, failure]
+            )
             controller, factory = self.controller(transport)
             with self.subTest(failure=repr(failure)):
                 with self.assertRaisesRegex(bridge.BridgeError, "anc_readback_failed"):
@@ -645,6 +782,7 @@ class AncTransactionTests(unittest.TestCase):
                         ("send", bridge.ANC_QUERY),
                         "receive",
                         ("send", bridge.SET_ANC_ON),
+                        "receive",
                         ("send", bridge.ANC_QUERY),
                         "receive",
                         "close",
@@ -652,7 +790,14 @@ class AncTransactionTests(unittest.TestCase):
                 )
 
     def test_valid_mismatching_readback_reports_observed_mode_without_replay(self):
-        transport = ScriptedTransport([identity(), CAPTURED_ANC["off"], CAPTURED_ANC["awareness"]])
+        transport = ScriptedTransport(
+            [
+                identity(),
+                CAPTURED_ANC["off"],
+                CAPTURED_ANC_WRITE_ACK,
+                CAPTURED_ANC["awareness"],
+            ]
+        )
         controller, _ = self.controller(transport)
         with self.assertRaises(bridge.BridgeError) as raised:
             controller.set_anc(ADDRESS, "anc")
@@ -669,6 +814,7 @@ class AncTransactionTests(unittest.TestCase):
                 ("send", bridge.ANC_QUERY),
                 "receive",
                 ("send", bridge.SET_ANC_ON),
+                "receive",
                 ("send", bridge.ANC_QUERY),
                 "receive",
                 "close",

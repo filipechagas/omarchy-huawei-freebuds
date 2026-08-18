@@ -15,7 +15,7 @@ The release supports one hardware target: **HUAWEI FreeBuds Pro 5**, public mode
 The release provides:
 
 - An Omarchy 4 native bar widget and panel that are always present when enabled.
-- Generic paired, connected, adapter, and aggregate-battery state from `Quickshell.Bluetooth`.
+- Generic paired, connected, adapter, and fallback aggregate-battery state from `Quickshell.Bluetooth`.
 - Experimental left, right, and case battery observations from strictly validated Huawei RFCOMM responses.
 - Experimental top-level noise-control state and explicit `Off`, `ANC`, and `Awareness` actions.
 - A deterministic generic BlueZ fallback whenever private access is unavailable.
@@ -46,7 +46,7 @@ When those reports conflict with this document, this document wins. In particula
 | Private refresh after reconnect | No automatic private contact after reconnect; panel open or Retry is required |
 | Manual Connect/Open Bluetooth actions in this panel | Status guidance only; the user uses Omarchy Bluetooth separately |
 | Unverified private read diagnostics | No unverified private value reaches product state |
-| Generic battery cross-validation gate | A finite connected `Quickshell.Bluetooth` `Battery1` value is authoritative for the generic aggregate only |
+| Generic battery cross-validation gate | A finite connected `Quickshell.Bluetooth` `Battery1` value is authoritative only for the generic fallback aggregate |
 
 ## 3. Fixed platform contract
 
@@ -186,7 +186,12 @@ QML owns the decision to select an address. The bridge only performs the atomic 
 
 The service projects Bluetooth QObjects into primitive snapshots before exposing them. It never stores a device QObject in a list-model row. Every action re-resolves the live backend object by address to avoid stale wrapper use after BlueZ churn.
 
-An aggregate battery is shown only while the selected device is connected, `batteryAvailable` is true, and `battery` is a finite value in `0.0..1.0`. It is rendered as `Math.round(battery * 100)`. The aggregate is labeled `Earbuds`; it is never relabeled as left, right, case, minimum, or average. Private tag `01` never replaces or computes the generic aggregate.
+A generic aggregate battery is valid only while the selected device is
+connected, `batteryAvailable` is true, and `battery` is a finite value in
+`0.0..1.0`. It is rendered as `Math.round(battery * 100)` and labeled `Earbuds`.
+It is a fallback when no verified component observation is available and is
+never relabeled as left, right, case, minimum, or average. Private tag `01`
+never replaces or computes this generic aggregate.
 
 The panel and bar never invoke pair, connect, disconnect, forget, discovery, trust, adapter-power, or profile methods. They provide text directing the user to Omarchy Bluetooth when such an action is required.
 
@@ -343,8 +348,17 @@ Immediately after the medium-security RFCOMM connection, the transport requires
 and consumes one exact CRC-valid empty `01/06` startup frame:
 `5A00030001063EBD`. It sends no application frame before this preamble. A
 missing, malformed, non-empty, combined, or different startup frame faults the
-transaction. Once consumed, the ordinary no-prior-input boundary applies before
-every query or write.
+transaction. Before every query or write, input already visible at the send
+boundary is accepted only when it is exactly one empty `01/06` control frame.
+The bridge consumes that frame and reapplies the boundary before sending; any
+other or additional queued input faults the transaction.
+
+The same exact empty `01/06` frame may recur once while the bridge waits for an
+expected query, acknowledgement, or readback response. It may arrive alone or
+coalesced with exactly one expected frame. The bridge consumes it under the
+original response deadline and never resends the request. A second empty
+control frame, any other extra frame, or a complete frame followed by a partial
+frame faults the transaction.
 
 ### 10.2 Immutable command corpus
 
@@ -359,10 +373,10 @@ Production code sends only these complete retained frames:
 | Set ANC | `5A0007002B04010201FFFFEC` |
 | Set Awareness | `5A0007002B04010202FFAABF` |
 
-The bridge verifies these constants and the received startup-frame constant for
-exact length and CRC at process startup. It does not provide a generic command
-encoder, arbitrary packet API, debug send box, notification subscription, or
-model command registry.
+The bridge verifies these constants plus the received startup and ANC
+acknowledgement constants for exact length and CRC at process startup. It does
+not provide a generic command encoder, arbitrary packet API, debug send box,
+notification subscription, or model command registry.
 
 ### 10.3 Identity gate
 
@@ -383,7 +397,10 @@ After identity, product state requires at least one CRC-valid retained Pro 5 res
 
 Shorter ANC responses retained for other models are rejected. A battery response without valid tag `05` is not Pro 5-shaped. Identity without either shape does not select an unpersisted candidate and exposes no private values.
 
-Tag `01` aggregate battery is ignored because Quickshell is authoritative for aggregate battery. Tag `03` charging bytes, tag `04`, tag `06`, ANC submode, and every unknown field are withheld from the product UI in `0.1.0`. The retained corpus does not establish enough Pro 5 semantics for those values.
+Tag `01` aggregate battery is ignored because Quickshell supplies the generic
+fallback aggregate. Tag `03` charging bytes, tag `04`, tag `06`, ANC submode,
+and every unknown field are withheld from the product UI in `0.1.0`. The
+retained corpus does not establish enough Pro 5 semantics for those values.
 
 ## 11. Transaction definitions
 
@@ -411,11 +428,17 @@ An explicit ANC action performs this sequence on one new socket:
 3. Query and strictly validate the extended Pro 5 ANC state.
 4. If the current top-level mode already equals the requested mode, perform no write and return the matching read as success.
 5. Otherwise send exactly one retained write frame for `off`, `anc`, or `awareness`.
-6. Do not update product state from `sendall()` success.
-7. Query ANC state exactly once and require a CRC-valid extended Pro 5 response whose top-level mode equals the request.
-8. Close the socket.
+6. Require the exact CRC-valid `2B/04` success acknowledgement `5A0006002B040201003171`.
+7. Do not update product state from `sendall()` or acknowledgement success.
+8. Query ANC state exactly once and require a CRC-valid extended Pro 5 response whose top-level mode equals the request.
+9. Close the socket.
 
-Only a matching readback is success. Missing, malformed, timed-out, or mismatched readback is failure. The bridge never repeats the write, sends an inverse write, or reports optimistic state. A valid mismatching readback is displayed as the observed current mode while the action reports `anc_readback_mismatch`.
+Only a matching readback after the exact success acknowledgement is success.
+Missing, malformed, rejected, or timed-out acknowledgement and missing,
+malformed, timed-out, or mismatched readback are failures. The bridge never
+repeats the write, sends an inverse write, or reports optimistic state. A valid
+mismatching readback is displayed as the observed current mode while the action
+reports `anc_readback_mismatch`.
 
 ## 12. Service interface and generations
 
@@ -437,21 +460,29 @@ No external IPC method starts private contact. `Panel.qml` sets `manageIpc: fals
 
 ## 13. UI contract
 
-The widget is always visible while enabled. It uses Omarchy's native `Panel`, `BarIconButton`, typography, spacing, colors, focus surfaces, and a generic monochrome headphones glyph already supplied by the host. It ships no Huawei logo, product illustration, Omapods icon, bitmap, or custom font. The generic fallback is display-only: it can render Quickshell adapter, connection, candidate, and aggregate-battery observations, but it cannot pair, connect, select persistently, open the private channel, or invoke any other device IO.
+The widget is always visible while enabled. It uses Omarchy's native `Panel`,
+`BarIconButton`, typography, spacing, colors, focus surfaces, and host-supplied
+monochrome glyphs. It ships no Huawei logo, product illustration, Omapods icon,
+bitmap, or custom font. The generic fallback is display-only: it can render
+Quickshell adapter, connection, candidate, and aggregate-battery observations,
+but it cannot pair, connect, select persistently, open the private channel, or
+invoke any other device IO.
 
 The bar shows:
 
-- A generic host glyph in every state.
-- The Quickshell aggregate percentage only when a selected connected device has a valid generic battery.
-- No private component summary in any state; the bar percentage is always the generic Quickshell aggregate.
+- A host glyph in every state.
+- The lower of fresh verified left and right percentages when component battery data is available; case battery is excluded.
+- The Quickshell aggregate percentage only as a fallback when no private component battery observation is shown.
+- A fresh verified ANC mode changes the glyph and adds `OFF`, `ANC`, or `AWR`; pending, stale, missing, and fallback states claim no mode.
+- No percentage for stale private component observations.
 - An accessible status name that does not rely on color.
 
 The panel shows, in order:
 
 1. `FreeBuds Pro 5` with an `Experimental` label.
 2. Generic adapter and selected-device connection state from Quickshell.
-3. Generic `Earbuds` aggregate battery when available.
-4. Left, right, and case rows only for valid private observations; unknown fields read `Not reported` and never `0%` by default.
+3. Either a generic `Earbuds` aggregate fallback or verified left, right, and case rows, never both presentations together.
+4. Private component rows only for valid observations; unknown fields read `Not reported` and never `0%` by default.
 5. A timestamp or out-of-date message for private observations.
 6. `Off`, `ANC`, and `Awareness` controls only after a valid extended ANC response for the connected selected address.
 7. One safe next action: candidate choice, `Retry`, or `Choose another device`, according to state.
@@ -501,10 +532,11 @@ Generic Quickshell state remains available in every row below unless the shell i
 | Identity passes but no retained Pro 5 response shape passes | Do not select and expose no private feature | Generic state plus `Private capabilities not verified` | None |
 | Battery response is absent or malformed | Clear component fields for this refresh | `Battery components not reported`; generic aggregate remains | None |
 | Component percentage is outside `0..100` | Reject that battery response; never clamp | `Battery components not reported` | None |
-| Generic `batteryAvailable` is false or value is non-finite/out of range | Hide generic percentage | `Earbuds battery not reported` | None |
+| Generic `batteryAvailable` is false or value is non-finite/out of range | Hide generic fallback percentage | `Earbuds battery not reported` when private components are unavailable | None |
 | ANC response is absent, short other-model shape, or unknown | Clear ANC and hide controls | `Noise control not reported` | None |
 | ANC request equals current mode | Send no write; accept the fresh matching read | Current mode remains selected | Socket closes normally |
 | ANC frame cannot be fully sent | Close socket; clear ANC; do not replay | `Noise control change was not confirmed` and `Retry` | None |
+| ANC acknowledgement is absent, invalid, rejected, or times out | Close socket; clear ANC; do not replay | `Noise control change was not confirmed` and `Retry` | None |
 | ANC readback is absent, invalid, or times out | Close socket; clear ANC; do not replay or invert | `Noise control change was not confirmed` and `Retry` | None |
 | ANC readback is valid but differs | Report action failure and show the valid observed mode | `Earbuds reported a different mode` and `Retry` | None |
 | Private observation reaches 131 seconds | Mark stale; remove private bar metric and disable private controls | Timestamp plus `Battery data is out of date` and `Retry` | None |
@@ -550,12 +582,12 @@ The following branches are closed for `0.1.0`. Implementing one requires a new a
 | Persistent RFCOMM socket | Unmeasured coexistence, power, and stale-state risk | New bounded socket for each explicit transaction |
 | Background polling, notifications, heartbeat reads, or reconnect contact | Causes hidden device traffic and stale lifecycle complexity | Panel-open, Retry, and explicit ANC triggers only |
 | Automatic read retry | Converts one trigger into undisclosed extra device traffic | One attempt; user presses Retry for a new attempt |
-| Automatic write retry, inverse write, or optimistic update | Delivery can succeed before reply loss and make replay destructive | One exact write and one matching readback |
+| Automatic write retry, inverse write, or optimistic update | Delivery can succeed before reply loss and make replay destructive | One exact write, one exact success acknowledgement, and one matching readback |
 | Name-only, address-only, CRC-only, or battery-only identity | Each can match an unsupported or spoofed target | `00016D` DeviceInfo plus retained Pro 5 response shape |
 | Unverified raw diagnostic values in product state | Risks presenting another model's data as Pro 5 data | Generic fallback with private fields absent |
 | Support for other FreeBuds models | No closed fixture and identity corpus for them | Exact T0023/`00016D` target only |
 | ANC strengths, voice submodes, gesture, EQ, wear, latency, multipoint, find, reset, or firmware writes | No retained Pro 5 request/readback corpus sufficient for safe control | Only top-level Off/ANC/Awareness |
-| Private aggregate or computed minimum battery in the bar | Conflicts with Quickshell's aggregate authority | Quickshell aggregate or no percentage |
+| Private tag-01 aggregate or case-inclusive summary in the bar | Its combined semantics are not verified | Lower of fresh verified left/right, otherwise Quickshell aggregate fallback or no percentage |
 | Huawei/Omapods logos, product art, or bundled custom icon | Unneeded asset and trademark/provenance surface | Host-native generic glyphs and text |
 | Omarchy settings schema | There are no configurable policy choices in this release | Code constants plus one private selected-address record |
 | External private-control IPC | Adds an undisclosed transaction trigger and multi-monitor target contention | Direct panel-to-singleton functions only |

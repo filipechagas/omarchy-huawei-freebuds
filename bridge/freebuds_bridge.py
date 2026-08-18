@@ -32,6 +32,7 @@ CONFIG_LOCK_TIMEOUT_SECONDS = 1.0
 CONFIG_LOCK_POLL_SECONDS = 0.01
 
 STARTUP_FRAME = bytes.fromhex("5A00030001063EBD")
+ANC_WRITE_ACK = bytes.fromhex("5A0006002B040201003171")
 DEVICE_INFO_QUERY = bytes.fromhex(
     "5A00210001070100020003000400050006000700080009000A000B000C000F0018001900DFF3"
 )
@@ -117,7 +118,7 @@ def crc16_xmodem(data):
 def validate_retained_frames():
     """Fail if an immutable captured protocol frame was corrupted."""
 
-    for frame in (STARTUP_FRAME,) + RETAINED_FRAMES:
+    for frame in (STARTUP_FRAME, ANC_WRITE_ACK) + RETAINED_FRAMES:
         if len(frame) < 8 or frame[0] != 0x5A:
             raise RuntimeError("retained frame self-check failed")
         declared_length = int.from_bytes(frame[1:3], "big")
@@ -233,9 +234,20 @@ def _expect_response(frame, service, command):
     return parsed
 
 
-def _expect_startup(frame):
-    parsed = _expect_response(frame, 0x01, 0x06)
-    if parsed["tlvs"]:
+def _expect_empty_control(frame):
+    parsed = _coerce_frame(frame)
+    if (
+        parsed.get("service") != 0x01
+        or parsed.get("command") != 0x06
+        or parsed.get("tlvs") != ()
+    ):
+        raise BridgeError("unexpected_response")
+    return parsed
+
+
+def _expect_anc_write_ack(frame):
+    parsed = _expect_response(frame, 0x2B, 0x04)
+    if parsed["tlvs"] != ((0x02, b"\x00"),):
         raise BridgeError("unexpected_response")
     return parsed
 
@@ -403,8 +415,8 @@ class RfcommTransport:
         remaining = deadline - self._clock()
         if remaining <= 0:
             raise BridgeError("timeout")
-        startup = self.receive_frame(remaining)
-        _expect_startup(startup)
+        startup = self.receive_frame(remaining, filter_control=False)
+        _expect_empty_control(startup)
         if self._clock() > deadline:
             raise BridgeError("timeout")
 
@@ -424,9 +436,13 @@ class RfcommTransport:
 
     def _send_fixed_operation(self, operation, timeout):
         active_socket = self._current_socket()
-        self._assert_no_prior_input(active_socket)
+        deadline = self._clock() + timeout
+        self._assert_no_prior_input(active_socket, timeout)
+        remaining = deadline - self._clock()
+        if remaining <= 0:
+            raise BridgeError("timeout")
         try:
-            active_socket.settimeout(timeout)
+            active_socket.settimeout(remaining)
             active_socket.sendall(_FIXED_TRANSPORT_FRAMES[operation])
         except (socket.timeout, TimeoutError) as error:
             raise BridgeError("timeout") from error
@@ -435,22 +451,34 @@ class RfcommTransport:
                 raise BridgeError("timeout") from error
             raise BridgeError("socket_closed") from error
 
-    def _assert_no_prior_input(self, active_socket):
+    def _assert_no_prior_input(self, active_socket, timeout):
         # Huawei frames carry no sequence value. This boundary rejects input
-        # already visible before a send, but cannot prove causality after it.
+        # already visible before a send, except for the exact empty control
+        # frame the earbuds can emit between otherwise causal responses.
         try:
             prior_input = self._readiness(active_socket)
         except BridgeError:
             raise
         except (OSError, TypeError, ValueError) as error:
             raise BridgeError("socket_closed") from error
+        if not prior_input:
+            return
+
+        try:
+            _expect_empty_control(self.receive_frame(timeout, filter_control=False))
+            prior_input = self._readiness(active_socket)
+        except BridgeError as error:
+            raise BridgeError("unexpected_response") from error
+        except (OSError, TypeError, ValueError) as error:
+            raise BridgeError("socket_closed") from error
         if prior_input:
             raise BridgeError("unexpected_response")
 
-    def receive_frame(self, timeout):
+    def receive_frame(self, timeout, filter_control=True):
         active_socket = self._current_socket()
 
         deadline = self._clock() + timeout
+        startup_count = 0
         while True:
             remaining = deadline - self._clock()
             if remaining <= 0:
@@ -471,11 +499,33 @@ class RfcommTransport:
                     raise
                 raise BridgeError("socket_closed")
             frames = self._decoder.feed(chunk)
-            if len(frames) > 1 or (frames and self._decoder.has_pending_data):
+            if frames and self._decoder.has_pending_data:
                 self._decoder.clear()
                 raise BridgeError("unexpected_response")
-            if frames:
-                return frames[0]
+            if not filter_control:
+                if len(frames) > 1:
+                    self._decoder.clear()
+                    raise BridgeError("unexpected_response")
+                if frames:
+                    return frames[0]
+                continue
+
+            responses = []
+            for frame in frames:
+                try:
+                    _expect_empty_control(frame)
+                except BridgeError:
+                    responses.append(frame)
+                else:
+                    startup_count += 1
+                    if startup_count > 1:
+                        self._decoder.clear()
+                        raise BridgeError("unexpected_response")
+            if len(responses) > 1:
+                self._decoder.clear()
+                raise BridgeError("unexpected_response")
+            if responses:
+                return responses[0]
 
     def close(self):
         with self._state_lock:
@@ -611,6 +661,13 @@ class TransactionController:
                     lambda timeout: transport.send_anc_write(mode, timeout),
                     deadline,
                 )
+                ack_timeout = min(RESPONSE_TIMEOUT_SECONDS, self._remaining(deadline))
+                ack_deadline = self._clock() + ack_timeout
+                ack = transport.receive_frame(ack_timeout)
+                if self._clock() > ack_deadline:
+                    raise BridgeError("timeout")
+                self._remaining(deadline)
+                _expect_anc_write_ack(ack)
             except BridgeError as error:
                 raise BridgeError("anc_send_failed") from error
 

@@ -275,8 +275,11 @@ function fallbackView(snapshot) {
         connected: selected !== null,
         aggregatePercent: percent,
         aggregateText: percent === null ? "Not reported" : percent + "%",
+        showAggregateBattery: true,
         connectionText: connection,
         barPercentText: percent === null ? "" : percent + "%",
+        barAncMode: "",
+        barAncText: "",
         barAccessibleName: spoken,
         barTooltip: "FreeBuds Pro 5: " + connection,
         message: "FreeBuds service is starting",
@@ -1358,13 +1361,30 @@ function deriveView(state) {
     var anc = current ? state.privateState.anc : null
     var batteryFreshness = observationFreshness(battery)
     var ancFreshness = observationFreshness(anc)
+    var splitBatteryFresh = batteryFreshness === "fresh"
+        && isPercent(battery.left) && isPercent(battery.right)
+    var showAggregateBattery = battery === null
+    var barBatteryPercent = splitBatteryFresh ? Math.min(battery.left, battery.right)
+        : showAggregateBattery ? aggregate : null
     var capability = ancCapability(state)
+    var barAncMode = capability.freshness === "fresh" && isAncMode(capability.mode)
+        ? capability.mode : ""
+    var barAncText = barAncMode === "off" ? "OFF"
+        : barAncMode === "anc" ? "ANC"
+        : barAncMode === "awareness" ? "AWR" : ""
+    var barAncSpoken = barAncMode === "off" ? "off"
+        : barAncMode === "anc" ? "noise cancellation"
+        : barAncMode === "awareness" ? "awareness" : ""
     var code = statusCode(state, batteryFreshness, ancFreshness)
     var action = primaryAction(state, batteryFreshness, ancFreshness)
     var connection = connectionText(state)
     var barName = "FreeBuds Pro 5, " + connection.toLowerCase()
-    if (aggregate !== null)
-        barName += ", earbuds " + aggregate + " percent"
+    if (splitBatteryFresh)
+        barName += ", lowest earbud " + barBatteryPercent + " percent"
+    else if (barBatteryPercent !== null)
+        barName += ", earbuds " + barBatteryPercent + " percent"
+    if (barAncSpoken !== "")
+        barName += ", noise control " + barAncSpoken
     if (state.helperPhase === "failed")
         barName += ", private controls unavailable"
 
@@ -1399,6 +1419,7 @@ function deriveView(state) {
         connectionText: connection,
         aggregatePercent: aggregate,
         aggregateText: aggregate === null ? "Not reported" : aggregate + "%",
+        showAggregateBattery: showAggregateBattery,
         batteryRows: rows,
         batteryFreshness: batteryFreshness,
         privateAgeText: ageLabel(battery || anc),
@@ -1411,10 +1432,14 @@ function deriveView(state) {
         primaryAction: action.kind,
         primaryActionLabel: action.label,
         primaryActionEnabled: action.enabled,
-        barPercentText: aggregate === null ? "" : aggregate + "%",
+        barPercentText: barBatteryPercent === null ? "" : barBatteryPercent + "%",
+        barAncMode: barAncMode,
+        barAncText: barAncText,
         barAccessibleName: barName,
         barTooltip: "FreeBuds Pro 5: " + connection
-            + (aggregate === null ? "" : "; Earbuds " + aggregate + "%")
+            + (splitBatteryFresh ? "; Lowest earbud " + barBatteryPercent + "%"
+                : barBatteryPercent === null ? "" : "; Earbuds " + barBatteryPercent + "%")
+            + (barAncText === "" ? "" : "; Noise control: " + barAncText)
     }
 }
 
