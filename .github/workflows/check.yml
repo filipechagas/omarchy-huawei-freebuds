@@ -1,0 +1,803 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ARCH_SNAPSHOT: "2026/08/18"
+  OMARCHY_COMMIT: f0020448ca87329199de7cb12f2015ebc4a3e5e7
+  QUICKSHELL_REVISION: 28771c7c74b42e20afca0b1b63980cb46515537c
+  QUICKSHELL_PACKAGE: quickshell-git-0.3.0.r20.g28771c7-1-x86_64.pkg.tar.zst
+  QUICKSHELL_SHA256: 5e4d8cb4eb05a741545d9f058ad440faa3111df925a7bba0ab98337765f06930
+
+jobs:
+  repository:
+    name: Manifest, policy, and package shape
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact manifest and release tag
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected = {
+              "schemaVersion": 1,
+              "id": "io.github.filipechagas.freebuds",
+              "name": "FreeBuds Pro 5",
+              "version": "0.1.0",
+              "author": "Filipe Chagas",
+              "license": "MIT",
+              "description": "Experimental battery and noise control for Huawei FreeBuds Pro 5.",
+              "kinds": ["service", "bar-widget"],
+              "entryPoints": {
+                  "service": "Service.qml",
+                  "barWidget": "Panel.qml",
+              },
+              "barWidget": {
+                  "displayName": "FreeBuds Pro 5",
+                  "description": "Experimental battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
+                  "category": "Audio",
+                  "allowMultiple": False,
+                  "defaultSection": "right",
+              },
+          }
+          path = Path("manifest.json")
+          raw = path.read_text(encoding="utf-8")
+          actual = json.loads(raw)
+          if actual != expected:
+              raise SystemExit("manifest.json differs from the accepted schema-v1 manifest")
+          if raw != json.dumps(expected, indent=2) + "\n":
+              raise SystemExit("manifest.json formatting differs from the accepted manifest")
+
+          if os.environ.get("GITHUB_REF_TYPE") == "tag":
+              expected_tag = f"v{expected['version']}"
+              if os.environ.get("GITHUB_REF_NAME") != expected_tag:
+                  raise SystemExit(f"release tag must be {expected_tag}")
+          PY
+
+          if [[ ${GITHUB_REF_TYPE:-} == tag ]]; then
+            git fetch --quiet origin main:refs/remotes/origin/main
+            tag_commit=$(git rev-parse "$GITHUB_REF^{commit}")
+            git merge-base --is-ancestor "$tag_commit" origin/main || {
+              printf 'release tags must point to a commit on main\n' >&2
+              exit 1
+            }
+          fi
+
+      - name: Validate hardware evidence and cryptographic tag signature
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          hardware_path = Path("docs/hardware-validation.md")
+          hardware = hardware_path.read_text(encoding="utf-8")
+          status_match = re.search(
+              r"^Status: (Pending|Passed|Failed)$",
+              hardware,
+              re.MULTILINE,
+          )
+          if status_match is None:
+              raise SystemExit("hardware validation must declare Status: Pending, Passed, or Failed")
+          status = status_match.group(1)
+
+          row_ids = []
+          results = {}
+          for line in hardware.splitlines():
+              if not line.startswith("| HW-"):
+                  continue
+              cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+              if len(cells) != 4:
+                  raise SystemExit(f"malformed hardware validation row: {line}")
+              gate_id, _procedure, _pass_condition, result = cells
+              if gate_id in results:
+                  raise SystemExit(f"duplicate hardware validation row: {gate_id}")
+              if result not in {"Not run", "Pass", "Fail"}:
+                  raise SystemExit(f"invalid hardware validation result for {gate_id}: {result}")
+              row_ids.append(gate_id)
+              results[gate_id] = result
+
+          expected_ids = [f"HW-{number:02d}" for number in range(1, 17)]
+          if row_ids != expected_ids:
+              raise SystemExit(
+                  f"hardware validation rows must be exactly HW-01..HW-16; found={row_ids}"
+              )
+          if status == "Passed" and any(result != "Pass" for result in results.values()):
+              raise SystemExit("Status Passed requires every hardware validation row to be Pass")
+
+          if os.environ.get("GITHUB_REF_TYPE") != "tag":
+              raise SystemExit(0)
+          if status != "Passed" or any(result != "Pass" for result in results.values()):
+              raise SystemExit(
+                  "release tags require hardware-validation Status Passed and every HW row Pass"
+              )
+
+          tag_ref = os.environ["GITHUB_REF"]
+          object_type = subprocess.check_output(
+              ["git", "cat-file", "-t", tag_ref],
+              text=True,
+          ).strip()
+          if object_type != "tag":
+              raise SystemExit("release tags must be annotated tag objects")
+          tag_object = subprocess.check_output(["git", "cat-file", "tag", tag_ref])
+          envelopes = (
+              (b"-----BEGIN PGP SIGNATURE-----", b"-----END PGP SIGNATURE-----"),
+              (b"-----BEGIN SSH SIGNATURE-----", b"-----END SSH SIGNATURE-----"),
+          )
+          if not any(
+              begin in tag_object
+              and end in tag_object
+              and tag_object.index(begin) < tag_object.index(end)
+              for begin, end in envelopes
+          ):
+              raise SystemExit(
+                  "annotated release tag must contain a complete PGP or SSH signature envelope"
+              )
+          PY
+
+          if [[ ${GITHUB_REF_TYPE:-} == tag ]]; then
+            if [[ -z ${GITHUB_TOKEN:-} ]]; then
+              printf 'workflow token is unavailable for release-tag verification\n' >&2
+              exit 1
+            fi
+            tag_object_sha=$(git rev-parse "$GITHUB_REF^{tag}")
+            tag_commit_sha=$(git rev-parse "$GITHUB_REF^{commit}")
+            verification_response="$RUNNER_TEMP/release-tag-verification.json"
+            if ! curl \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              --proto '=https' \
+              --tlsv1.2 \
+              --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer $GITHUB_TOKEN" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --output "$verification_response"; then
+              printf 'GitHub annotated-tag verification request failed\n' >&2
+              exit 1
+            fi
+
+            TAG_OBJECT_SHA="$tag_object_sha" \
+            TAG_COMMIT_SHA="$tag_commit_sha" \
+            TAG_VERIFICATION_RESPONSE="$verification_response" \
+            python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          try:
+              response = json.loads(
+                  Path(os.environ["TAG_VERIFICATION_RESPONSE"]).read_text(encoding="utf-8")
+              )
+          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+              raise SystemExit(
+                  f"GitHub returned an unreadable release-tag verification response: {error}"
+              ) from error
+          if not isinstance(response, dict):
+              raise SystemExit("GitHub release-tag verification response must be an object")
+
+          expected_tag_sha = os.environ["TAG_OBJECT_SHA"]
+          expected_commit_sha = os.environ["TAG_COMMIT_SHA"]
+          expected_tag_name = os.environ["GITHUB_REF_NAME"]
+          if response.get("sha") != expected_tag_sha:
+              raise SystemExit("GitHub verified a different annotated tag object")
+          if response.get("tag") != expected_tag_name:
+              raise SystemExit("GitHub annotated tag name differs from the release ref")
+
+          target = response.get("object")
+          if not isinstance(target, dict):
+              raise SystemExit("GitHub annotated tag response is missing its target object")
+          if target.get("type") != "commit" or target.get("sha") != expected_commit_sha:
+              raise SystemExit("release tag must directly target the checked commit")
+
+          verification = response.get("verification")
+          if not isinstance(verification, dict):
+              raise SystemExit("GitHub annotated tag response is missing verification metadata")
+          if verification.get("verified") is not True or verification.get("reason") != "valid":
+              reason = verification.get("reason")
+              raise SystemExit(
+                  f"GitHub did not cryptographically verify the release tag: reason={reason!r}"
+              )
+          signature = verification.get("signature")
+          payload = verification.get("payload")
+          if not isinstance(signature, str) or not signature.strip():
+              raise SystemExit("GitHub verification response has no signature payload")
+          if not isinstance(payload, str) or not payload.strip():
+              raise SystemExit("GitHub verification response has no signed tag payload")
+
+          local_tag = subprocess.check_output(
+              ["git", "cat-file", "tag", os.environ["GITHUB_REF"]]
+          )
+          signature_bytes = signature.encode("utf-8")
+          payload_bytes = payload.encode("utf-8")
+          signature_offset = local_tag.find(signature_bytes)
+          if signature_offset < 0:
+              raise SystemExit("GitHub verification signature differs from the local tag object")
+          if local_tag[:signature_offset] != payload_bytes:
+              raise SystemExit("GitHub verified payload differs from the local tag object")
+          if local_tag[signature_offset:].rstrip(b"\n") != signature_bytes.rstrip(b"\n"):
+              raise SystemExit("release tag contains unsigned data after its verified signature")
+          PY
+          fi
+
+      - name: Validate license and README contract
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import re
+          from pathlib import Path
+
+          license_bytes = Path("LICENSE").read_bytes()
+          expected_license = "ee60d0ce9c33b57fae9c245ad39e0d74d3a4796df97e14dcc9ee47c35e3fa6dc"
+          if hashlib.sha256(license_bytes).hexdigest() != expected_license:
+              raise SystemExit("LICENSE differs from the expected MIT License text")
+
+          readme = Path("README.md").read_text(encoding="utf-8")
+          required = [
+              "**Experimental:**",
+              "T0023",
+              "`00016D`",
+              "Omarchy `4.0.0-1`",
+              "MIT License",
+              "Hardware validation status is",
+              "No hardware test is claimed as passed",
+              "complete PGP or SSH signature envelope",
+              "GitHub cryptographically verifies the PGP or SSH signature",
+              "`verification.verified` equal to `true`",
+              "`verification.reason` equal to `valid`",
+              "No current signing readiness is claimed",
+              "![FreeBuds Pro 5 Omarchy panel preview](docs/preview.png)",
+              "The preview uses deterministic fixture values",
+              "https://github.com/filipechagas/omarchy-huawei-freebuds.git",
+              "main` is the distribution channel",
+              "No OpenFreebuds, AUR package, systemd unit, build step, or separately installed",
+              "never pairs,",
+              "makes no IP-network connection",
+              "mode `0600`",
+              "## Troubleshooting",
+              "## Disable And Remove",
+          ]
+          missing = [text for text in required if text not in readme]
+          if missing:
+              raise SystemExit(f"README is missing required delivery text: {missing}")
+
+          forbidden_commands = re.compile(
+              r"(?im)^\s*(?:sudo\s+)?(?:pacman|yay|paru|pip|pipx|systemctl|omarchy\s+pkg)\b"
+          )
+          if forbidden_commands.search(readme):
+              raise SystemExit("README contains a forbidden package, service, or helper install command")
+          PY
+
+      - name: Enforce repository shape
+        run: |
+          while IFS= read -r entry; do
+            if [[ $entry == 160000\ * ]]; then
+              path=${entry#*$'\t'}
+              printf 'raw gitlink is forbidden: %s\n' "$path" >&2
+              exit 1
+            fi
+          done < <(git ls-files --stage)
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          expected = {
+              ".gitignore",
+              ".github/workflows/check.yml",
+              "LICENSE",
+              "Model.js",
+              "Panel.qml",
+              "README.md",
+              "Service.qml",
+              "bridge/freebuds_bridge.py",
+              "docs/architecture.md",
+              "docs/hardware-validation.md",
+              "docs/implementation-plan.md",
+              "docs/preview.png",
+              "docs/research/freebuds-pro-5-protocol.md",
+              "docs/research/omarchy-plugin-platform.md",
+              "docs/research/product-spec.md",
+              "manifest.json",
+              "tests/python/test_framer.py",
+              "tests/python/test_jsonl.py",
+              "tests/python/test_transactions.py",
+              "tests/qml/fixtures/fake_bridge.py",
+              "tests/qml/host-smoke/shell.qml",
+              "tests/qml/run-host-smoke.sh",
+              "tests/qml/tst_Model.qml",
+          }
+          root = Path(".")
+          paths = []
+          links = []
+          for path in root.rglob("*"):
+              relative = path.relative_to(root)
+              if ".git" in relative.parts:
+                  continue
+              if path.is_symlink():
+                  links.append(relative.as_posix())
+              if path.is_file() or path.is_symlink():
+                  paths.append(relative.as_posix())
+
+          actual = set(paths)
+          missing = sorted(expected - actual)
+          unexpected = sorted(actual - expected)
+          if missing or unexpected or links:
+              raise SystemExit(
+                  f"repository shape mismatch; missing={missing}, unexpected={unexpected}, symlinks={links}"
+              )
+
+          binary_expected = {"docs/preview.png"}
+          for relative in sorted(expected):
+              data = (root / relative).read_bytes()
+              if relative in binary_expected:
+                  if len(data) > 1024 * 1024:
+                      raise SystemExit(f"preview image exceeds 1 MiB: {relative}")
+                  if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+                      raise SystemExit(f"preview is not a valid PNG header: {relative}")
+                  dimensions = (
+                      int.from_bytes(data[16:20], "big"),
+                      int.from_bytes(data[20:24], "big"),
+                  )
+                  if dimensions != (880, 1080):
+                      raise SystemExit(
+                          f"preview dimensions must be 880x1080; found={dimensions}"
+                      )
+                  continue
+              if b"\0" in data:
+                  raise SystemExit(f"binary content is forbidden: {relative}")
+              data.decode("utf-8")
+          PY
+
+      - name: Scan forbidden dependencies and process models
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          implementation = [
+              Path("Panel.qml"),
+              Path("Service.qml"),
+              Path("Model.js"),
+              Path("bridge/freebuds_bridge.py"),
+          ]
+          patterns = {
+              "OpenFreebuds runtime": r"\bopen\s*freebuds\b|\bopenfreebuds\b",
+              "Omapods source or runtime": r"\bomapods\b|\bomarchy-pods\b|\blibrepods\b",
+              "non-Bluetooth socket": r"\bAF_(?:INET6?|UNIX)\b|\bSOCK_DGRAM\b|\bIPPROTO_(?:TCP|UDP)\b|\bsocket\.(?:create_connection|create_server|socketpair|getaddrinfo)\b",
+              "network client/server library": r"\b(?:aiohttp|requests|urllib|http\.client|http\.server|socketserver|websockets?|xmlrpc|ftplib|XMLHttpRequest)\b|\bQt\.openUrlExternally\b|https?://",
+              "D-Bus library": r"\b(?:dbus(?:-next)?|pydbus|QtDBus)\b",
+              "detached execution": r"\b(?:execDetached|startDetached|subprocess|multiprocessing|Popen|posix_spawn|fork)\b|\bos\.(?:exec\w*|spawn\w*)\b",
+              "shell execution": r"\b(?:bash|sh)\s+-c\b|\bshell\s*=\s*True\b|\bos\.system\b",
+              "system service": r"\b(?:systemctl|systemd)\b",
+              "security downgrade": r"\b(?:BT_SECURITY_LOW|BT_SECURITY_SDP|SECURITY_LOW|SECURITY_NONE)\b|\bsecurity_level\s*=\s*[01]\b",
+              "channel search": r"\b(?:scan_channels?|channel_scan|channel_range|find_channel|discover_channel)\b",
+              "automatic retry": r"\b(?:retry_count|max_retries|automatic_retry|auto_retry|retryTimer)\b",
+              "reconnect loop": r"\b(?:reconnect_loop|reconnectTimer|auto_reconnect)\b",
+              "private polling": r"\b(?:private_poll|poll_private|poll_interval|pollTimer|heartbeat)\b",
+              "notification subscription": r"\b(?:start_notify|subscribe_notifications?|notification_command)\b",
+              "arbitrary packet API": r"\b(?:send_raw|send_packet|raw_packet|encode_command|encode_frame|build_frame|create_frame|make_frame|serialize_frame|command_registry)\b",
+          }
+
+          failures = []
+          for path in implementation:
+              text = path.read_text(encoding="utf-8")
+              for label, pattern in patterns.items():
+                  for match in re.finditer(pattern, text, re.IGNORECASE):
+                      line = text.count("\n", 0, match.start()) + 1
+                      failures.append(f"{path}:{line}: {label}: {match.group(0)!r}")
+
+          panel = Path("Panel.qml").read_text(encoding="utf-8")
+          service = Path("Service.qml").read_text(encoding="utf-8")
+          model = Path("Model.js").read_text(encoding="utf-8")
+          qml = panel + "\n" + service
+          if len(re.findall(r"\bProcess\s*\{", service)) != 1:
+              failures.append("Service.qml must declare exactly one attached Process")
+          if re.search(r"\bProcess\s*\{", panel) or re.search(r"\bProcess\s*\{", model):
+              failures.append("only Service.qml may own a Process")
+          if re.search(r"\bIpcHandler\s*\{", qml):
+              failures.append("external private-control IPC is forbidden")
+          if not re.search(r"\bmanageIpc\s*:\s*false\b", panel):
+              failures.append("Panel.qml must set manageIpc: false")
+          for token in ("/usr/bin/env", '"python3"', "/bridge/freebuds_bridge.py", '"--stdio"'):
+              if token not in service:
+                  failures.append(f"Service.qml process command is missing {token}")
+          if re.search(
+              r"\brequired\s+property\s+\w+\s+(?:shell|manifest|bar|moduleName|settings)\b",
+              qml,
+          ):
+              failures.append("host-injected properties must remain nullable")
+          if re.search(
+              r"\b(?:pair|forget|startDiscovery|stopDiscovery|connectDevice|disconnectDevice)\s*\(",
+              qml,
+          ):
+              failures.append("QML Bluetooth management is forbidden")
+
+          if failures:
+              raise SystemExit("\n".join(failures))
+          PY
+
+  python:
+    name: Python, transport, and immutable frames
+    runs-on: ubuntu-latest
+    container: archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a
+    timeout-minutes: 15
+    steps:
+      - name: Pin Arch package snapshot
+        run: |
+          printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCH_SNAPSHOT" > /etc/pacman.d/mirrorlist
+          pacman --noconfirm --noprogressbar -Syyu
+          pacman --noconfirm --noprogressbar --needed -S git python
+
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Compile and test
+        run: |
+          python3 -m compileall -q bridge tests/python
+          python3 -m unittest discover -s tests/python -v
+
+      - name: Audit imports and socket construction
+        run: |
+          python3 - <<'PY'
+          import ast
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path("bridge/freebuds_bridge.py")
+          tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+          stdlib = set(sys.stdlib_module_names) | {"__future__"}
+          forbidden_modules = {
+              "aiohttp", "dbus", "dbus_next", "ftplib", "http", "multiprocessing",
+              "openfreebuds", "pydbus", "requests", "socketserver", "ssl", "subprocess",
+              "urllib", "websockets", "xmlrpc",
+          }
+          failures = []
+          imports_socket = False
+
+          def dotted(node):
+              if isinstance(node, ast.Name):
+                  return node.id
+              if isinstance(node, ast.Attribute):
+                  prefix = dotted(node.value)
+                  return f"{prefix}.{node.attr}" if prefix else node.attr
+              return None
+
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  for alias in node.names:
+                      root = alias.name.split(".", 1)[0]
+                      if root not in stdlib:
+                          failures.append(f"line {node.lineno}: non-standard import {alias.name}")
+                      if root in forbidden_modules:
+                          failures.append(f"line {node.lineno}: forbidden module {alias.name}")
+                      if alias.name == "socket":
+                          if alias.asname:
+                              failures.append(f"line {node.lineno}: socket module must not be aliased")
+                          imports_socket = True
+              elif isinstance(node, ast.ImportFrom):
+                  root = (node.module or "").split(".", 1)[0]
+                  if root not in stdlib:
+                      failures.append(f"line {node.lineno}: non-standard import {node.module}")
+                  if root in forbidden_modules:
+                      failures.append(f"line {node.lineno}: forbidden module {node.module}")
+                  if root == "socket":
+                      failures.append(f"line {node.lineno}: import socket as a module for auditable construction")
+              elif isinstance(node, ast.Call) and dotted(node.func) in {
+                  "eval", "exec", "compile", "__import__",
+              }:
+                  failures.append(f"line {node.lineno}: dynamic execution/import is forbidden")
+
+          if not imports_socket:
+              failures.append("bridge must import the standard-library socket module")
+          for node in ast.walk(tree):
+              if not isinstance(node, ast.Call) or dotted(node.func) != "socket.socket":
+                  continue
+              actual = [dotted(arg) for arg in node.args]
+              expected = ["socket.AF_BLUETOOTH", "socket.SOCK_STREAM", "socket.BTPROTO_RFCOMM"]
+              if actual != expected or node.keywords:
+                  failures.append(
+                      f"line {node.lineno}: socket construction must be socket.socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM)"
+                  )
+
+          for node in tree.body:
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and re.search(
+                  r"(?:raw|packet|command|frame).*(?:send|encode|build|create|make|serialize)|(?:send|encode|build|create|make|serialize).*(?:raw|packet|command|frame)",
+                  node.name,
+                  re.IGNORECASE,
+              ):
+                  failures.append(f"line {node.lineno}: arbitrary packet API {node.name}")
+          for node in ast.walk(tree):
+              if isinstance(node, (ast.For, ast.AsyncFor)):
+                  names = [item.id for item in ast.walk(node.target) if isinstance(item, ast.Name)]
+                  if any("channel" in name.lower() for name in names):
+                      failures.append(f"line {node.lineno}: RFCOMM channel iteration is forbidden")
+
+          if failures:
+              raise SystemExit("\n".join(failures))
+          PY
+
+      - name: Probe the injected socket boundary
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import socket
+          import struct
+          import sys
+          from pathlib import Path
+
+          bridge_path = Path("bridge/freebuds_bridge.py")
+          spec = importlib.util.spec_from_file_location("freebuds_bridge_socket_ci", bridge_path)
+          bridge = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = bridge
+          spec.loader.exec_module(bridge)
+
+          calls = []
+
+          class ProbeSocket:
+              def __init__(self):
+                  self.security = None
+                  self.target = None
+                  self.closed = False
+
+              def settimeout(self, _timeout):
+                  pass
+
+              def setsockopt(self, level, option, value):
+                  self.security = (level, option, value)
+
+              def getsockopt(self, level, option, size):
+                  assert self.security[:2] == (level, option)
+                  assert size == struct.calcsize("BB")
+                  return struct.pack("BB", 2, 0)
+
+              def connect(self, target):
+                  self.target = target
+
+              def close(self):
+                  self.closed = True
+
+          probe = ProbeSocket()
+
+          def factory(*arguments):
+              calls.append(arguments)
+              return probe
+
+          transport = bridge.RfcommTransport(socket_factory=factory)
+          transport.connect("AA:BB:CC:DD:EE:FF", 3.0)
+          assert calls == [(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)]
+          assert probe.security == (
+              socket.SOL_BLUETOOTH,
+              socket.BT_SECURITY,
+              struct.pack("BB", 2, 0),
+          )
+          assert probe.target == ("AA:BB:CC:DD:EE:FF", 1)
+          transport.close()
+          assert probe.closed
+          PY
+
+      - name: Verify immutable command frames
+        run: |
+          python3 - <<'PY'
+          import binascii
+          import hashlib
+          import importlib.util
+          import sys
+          from collections.abc import Mapping
+          from pathlib import Path
+
+          expected_hex = {
+              "device_info": "5A00210001070100020003000400050006000700080009000A000B000C000F0018001900DFF3",
+              "battery": "5A0009000108010002000300FBB9",
+              "anc_read": "5A0005002B2A0100427E",
+              "set_off": "5A0007002B0401020000D22D",
+              "set_anc": "5A0007002B04010201FFFFEC",
+              "set_awareness": "5A0007002B04010202FFAABF",
+          }
+          expected_hashes = {
+              "device_info": "7b555619d3781d85e996a1e3ef0610e9de507ddf53065a8b13b25145e4c84c97",
+              "battery": "d93d1c0ab99ab9a3e67ccce97416670e6d49ba2f22423183eec487aa9c72c63b",
+              "anc_read": "1d9c0ec87d88001a1367b2cfe7f8b498d0104b1c6c5b485d707a051689548485",
+              "set_off": "37f6d922111924ed9c706764b28bd5bd0f2263d1d3e8b8e5f6dcea53d936a373",
+              "set_anc": "dc02c7d09f85a57a0941f69e37980ea3bc83a375a6d239b88094848ccc298246",
+              "set_awareness": "caf60c5dc794693669af35ba376705cd9fa55fceb030797ebf4d6c97e29e3059",
+          }
+          expected = {bytes.fromhex(value) for value in expected_hex.values()}
+          for name, text in expected_hex.items():
+              frame = bytes.fromhex(text)
+              if len(frame) != int.from_bytes(frame[1:3], "big") + 5:
+                  raise SystemExit(f"{name}: retained length is invalid")
+              if frame[0] != 0x5A or frame[3] != 0x00:
+                  raise SystemExit(f"{name}: retained header is invalid")
+              if binascii.crc_hqx(frame[:-2], 0) != int.from_bytes(frame[-2:], "big"):
+                  raise SystemExit(f"{name}: retained CRC is invalid")
+              if hashlib.sha256(frame).hexdigest() != expected_hashes[name]:
+                  raise SystemExit(f"{name}: retained SHA-256 is invalid")
+
+          bridge_path = Path("bridge/freebuds_bridge.py")
+          spec = importlib.util.spec_from_file_location("freebuds_bridge_ci", bridge_path)
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+
+          found = set()
+          visited = set()
+
+          def inspect(value):
+              identity = id(value)
+              if identity in visited:
+                  return
+              visited.add(identity)
+              if isinstance(value, bytes):
+                  if len(value) >= 5 and value[0] == 0x5A:
+                      declared = int.from_bytes(value[1:3], "big")
+                      if len(value) == declared + 5:
+                          found.add(value)
+                  return
+              if isinstance(value, Mapping):
+                  for key, item in value.items():
+                      inspect(key)
+                      inspect(item)
+              elif isinstance(value, (tuple, list, frozenset, set)):
+                  for item in value:
+                      inspect(item)
+
+          for name, value in vars(module).items():
+              if not name.startswith("__"):
+                  inspect(value)
+
+          missing = sorted(frame.hex().upper() for frame in expected - found)
+          extra = sorted(frame.hex().upper() for frame in found - expected)
+          if missing or extra:
+              raise SystemExit(f"immutable frame corpus mismatch; missing={missing}, extra={extra}")
+          PY
+
+  qml:
+    name: Pinned host QML and formatting
+    runs-on: ubuntu-latest
+    container: archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a
+    timeout-minutes: 25
+    steps:
+      - name: Install pinned host contract
+        run: |
+          printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCH_SNAPSHOT" > /etc/pacman.d/mirrorlist
+          pacman --noconfirm --noprogressbar -Syyu
+          pacman --noconfirm --noprogressbar --needed -S curl diffutils git jq python qt6-declarative weston
+          package="$RUNNER_TEMP/$QUICKSHELL_PACKAGE"
+          curl --fail --silent --show-error --location \
+            "https://pkgs.omarchy.org/stable/x86_64/$QUICKSHELL_PACKAGE" \
+            --output "$package"
+          printf '%s  %s\n' "$QUICKSHELL_SHA256" "$package" | sha256sum --check --strict
+          pacman --noconfirm --noprogressbar -U "$package"
+          pacman -Q qt6-base | grep --extended-regexp --quiet '^qt6-base 6\.11\.1-'
+          pacman -Q qt6-declarative | grep --extended-regexp --quiet '^qt6-declarative 6\.11\.1-'
+          quickshell --version | tee "$RUNNER_TEMP/quickshell-version"
+          grep --fixed-strings --quiet "$QUICKSHELL_REVISION" "$RUNNER_TEMP/quickshell-version"
+
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Fetch pinned Omarchy contract
+        run: |
+          contract="$RUNNER_TEMP/omarchy-contract"
+          git init --quiet "$contract"
+          git -C "$contract" remote add origin https://github.com/basecamp/omarchy.git
+          git -C "$contract" fetch --quiet --depth=1 origin "$OMARCHY_COMMIT"
+          git -C "$contract" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$contract" rev-parse HEAD)" = "$OMARCHY_COMMIT"
+          printf 'OMARCHY_PATH=%s\n' "$contract" >> "$GITHUB_ENV"
+          qml_import_root="$RUNNER_TEMP/qml-import"
+          mkdir -p "$qml_import_root"
+          ln -s "$contract/shell" "$qml_import_root/qs"
+          printf 'QML_IMPORT_ROOT=%s\n' "$qml_import_root" >> "$GITHUB_ENV"
+
+      - name: Validate plugin with pinned Omarchy
+        run: "$OMARCHY_PATH/bin/omarchy-plugin-validate ."
+
+      - name: Lint QML
+        run: /usr/lib/qt6/bin/qmllint -W 0 -I "$QML_IMPORT_ROOT" Panel.qml Service.qml tests/qml/tst_Model.qml
+
+      - name: Test pure QML model
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: /usr/lib/qt6/bin/qmltestrunner -input tests/qml -import "$QML_IMPORT_ROOT"
+
+      - name: Smoke test host entry points under Weston
+        run: |
+          runtime="$RUNNER_TEMP/weston-runtime"
+          mkdir -m 700 "$runtime"
+          export XDG_RUNTIME_DIR="$runtime"
+          export WAYLAND_DISPLAY=wayland-ci
+          weston_log="$RUNNER_TEMP/weston.log"
+          /usr/bin/weston \
+            --backend=headless-backend.so \
+            --socket="$WAYLAND_DISPLAY" \
+            --idle-time=0 \
+            --log="$weston_log" &
+          weston_pid=$!
+          cleanup() {
+            kill "$weston_pid" 2>/dev/null || true
+            wait "$weston_pid" 2>/dev/null || true
+          }
+          show_weston_log() {
+            if [[ -f $weston_log ]]; then
+              while IFS= read -r line; do
+                printf '%s\n' "$line" >&2
+              done < "$weston_log"
+            fi
+          }
+          trap cleanup EXIT
+
+          for _attempt in {1..100}; do
+            if [[ -S $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY ]]; then
+              break
+            fi
+            if ! kill -0 "$weston_pid" 2>/dev/null; then
+              printf 'Weston exited before creating its Wayland socket\n' >&2
+              show_weston_log
+              exit 1
+            fi
+            sleep 0.1
+          done
+          if [[ ! -S $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY ]]; then
+            printf 'Weston did not create its Wayland socket\n' >&2
+            show_weston_log
+            exit 1
+          fi
+
+          set +e
+          tests/qml/run-host-smoke.sh
+          smoke_status=$?
+          set -e
+          if (( smoke_status == 77 )); then
+            printf 'HOST-SMOKE: skip 77 is a CI failure\n' >&2
+            exit 1
+          fi
+          if (( smoke_status != 0 )); then
+            exit "$smoke_status"
+          fi
+
+      - name: Compare qmlformat output
+        run: |
+          for file in Panel.qml Service.qml; do
+            formatted="$RUNNER_TEMP/$(basename "${file%.qml}")-formatted.qml"
+            cp "$file" "$formatted"
+            /usr/lib/qt6/bin/qmlformat -i "$formatted"
+            diff --unified "$file" "$formatted"
+          done

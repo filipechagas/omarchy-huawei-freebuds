@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.filipechagas.freebuds",
+  "name": "FreeBuds Pro 5",
+  "version": "0.1.0",
+  "author": "Filipe Chagas",
+  "license": "MIT",
+  "description": "Experimental battery and noise control for Huawei FreeBuds Pro 5.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "FreeBuds Pro 5",
+    "description": "Experimental battery and noise control for verified Huawei FreeBuds Pro 5 earbuds.",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
