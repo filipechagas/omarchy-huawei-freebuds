@@ -339,6 +339,13 @@ The stream parser:
 - Requires the expected service/command for the current request.
 - Treats one malformed or unexpected response as a transaction fault.
 
+Immediately after the medium-security RFCOMM connection, the transport requires
+and consumes one exact CRC-valid empty `01/06` startup frame:
+`5A00030001063EBD`. It sends no application frame before this preamble. A
+missing, malformed, non-empty, combined, or different startup frame faults the
+transaction. Once consumed, the ordinary no-prior-input boundary applies before
+every query or write.
+
 ### 10.2 Immutable command corpus
 
 Production code sends only these complete retained frames:
@@ -352,7 +359,10 @@ Production code sends only these complete retained frames:
 | Set ANC | `5A0007002B04010201FFFFEC` |
 | Set Awareness | `5A0007002B04010202FFAABF` |
 
-The bridge verifies these constants' lengths and CRCs at startup. It does not provide a generic command encoder, arbitrary packet API, debug send box, notification subscription, or model command registry.
+The bridge verifies these constants and the received startup-frame constant for
+exact length and CRC at process startup. It does not provide a generic command
+encoder, arbitrary packet API, debug send box, notification subscription, or
+model command registry.
 
 ### 10.3 Identity gate
 
@@ -381,11 +391,12 @@ Tag `01` aggregate battery is ignored because Quickshell is authoritative for ag
 
 A refresh performs this sequence on one socket:
 
-1. Query and strictly verify DeviceInfo `00016D`.
-2. Query battery once and independently decode the Pro 5 battery shape.
-3. Query ANC state once and independently decode the extended Pro 5 ANC shape.
-4. Close the socket.
-5. Return each valid feature as a timestamped observation and each failed feature as `null` with a feature error.
+1. Require the exact empty `01/06` startup frame within the connection deadline.
+2. Query and strictly verify DeviceInfo `00016D`.
+3. Query battery once and independently decode the Pro 5 battery shape.
+4. Query ANC state once and independently decode the extended Pro 5 ANC shape.
+5. Close the socket.
+6. Return each valid feature as a timestamped observation and each failed feature as `null` with a feature error.
 
 Identity failure invalidates the entire result. After identity succeeds, one valid feature can be returned when the other feature fails. At least one valid Pro 5-shaped feature is required to mark the address read-verified or to persist a new selection. ANC controls appear only when the ANC response itself is valid.
 
@@ -395,13 +406,14 @@ There is no second attempt for a timeout, malformed feature response, or missing
 
 An explicit ANC action performs this sequence on one new socket:
 
-1. Query and strictly verify DeviceInfo `00016D`.
-2. Query and strictly validate the extended Pro 5 ANC state.
-3. If the current top-level mode already equals the requested mode, perform no write and return the matching read as success.
-4. Otherwise send exactly one retained write frame for `off`, `anc`, or `awareness`.
-5. Do not update product state from `sendall()` success.
-6. Query ANC state exactly once and require a CRC-valid extended Pro 5 response whose top-level mode equals the request.
-7. Close the socket.
+1. Require the exact empty `01/06` startup frame within the connection deadline.
+2. Query and strictly verify DeviceInfo `00016D`.
+3. Query and strictly validate the extended Pro 5 ANC state.
+4. If the current top-level mode already equals the requested mode, perform no write and return the matching read as success.
+5. Otherwise send exactly one retained write frame for `off`, `anc`, or `awareness`.
+6. Do not update product state from `sendall()` success.
+7. Query ANC state exactly once and require a CRC-valid extended Pro 5 response whose top-level mode equals the request.
+8. Close the socket.
 
 Only a matching readback is success. Missing, malformed, timed-out, or mismatched readback is failure. The bridge never repeats the write, sends an inverse write, or reports optimistic state. A valid mismatching readback is displayed as the observed current mode while the action reports `anc_readback_mismatch`.
 

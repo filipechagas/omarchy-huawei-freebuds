@@ -16,7 +16,8 @@ validation.
 ![FreeBuds Pro 5 Omarchy panel preview](docs/preview.png)
 
 > The preview uses deterministic fixture values. It is not physical hardware
-> evidence.
+> evidence. It depicts a successful verified private refresh; when that refresh
+> fails, the panel intentionally keeps only generic Bluetooth status visible.
 
 This is an unofficial project. It is not affiliated with, endorsed by, or
 supported by Huawei. It ships no Huawei or Omapods code, logos, or other

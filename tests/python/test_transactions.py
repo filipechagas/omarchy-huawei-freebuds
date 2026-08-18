@@ -48,6 +48,7 @@ def identity(model_id="00016D", prefix=b"BTF0027", model_code=None):
 
 INVALID_BATTERY_SHAPE = frame(1, 8, [(2, b"\x64\x64\x55")])
 INVALID_ANC_SHAPE = bytes.fromhex("5A0007002B2A010203015043")
+STARTUP_FRAME = frame(1, 6)
 
 
 class FakeClock:
@@ -155,12 +156,15 @@ class FakeSocket:
         get_error=None,
         connect_error=None,
         recv_chunks=(),
+        startup_frame=STARTUP_FRAME,
     ):
         self.reported_security = reported_security
         self.set_error = set_error
         self.get_error = get_error
         self.connect_error = connect_error
-        self.recv_chunks = list(recv_chunks)
+        self.recv_chunks = ([] if startup_frame is None else [startup_frame]) + list(
+            recv_chunks
+        )
         self.events = []
         self.closed = False
 
@@ -226,6 +230,40 @@ class RfcommTransportPolicyTests(unittest.TestCase):
         self.assertLess(fake_socket.events.index(security_set), fake_socket.events.index(("connect", (ADDRESS, 1))))
         self.assertIn(("get_security", 274, 4, 2), fake_socket.events)
         self.assertTrue(fake_socket.closed)
+
+    def test_connect_consumes_the_exact_empty_startup_frame_before_queries(self):
+        fake_socket = FakeSocket(recv_chunks=[identity()])
+        patches = self.socket_constants()
+        with patches[0], patches[1], patches[2], patches[3]:
+            transport = bridge.RfcommTransport(socket_factory=lambda *_: fake_socket)
+            transport.connect(ADDRESS, 3.0)
+            response = transport.receive_frame(2.0)
+            transport.close()
+
+        self.assertEqual((response["service"], response["command"]), (1, 7))
+        self.assertEqual(response["tlvs"], bridge.parse_frame(identity())["tlvs"])
+
+    def test_connect_rejects_missing_malformed_or_nonexact_startup_frames(self):
+        damaged = bytearray(STARTUP_FRAME)
+        damaged[-1] ^= 1
+        cases = (
+            (None, "socket_closed"),
+            (bytes(damaged), "invalid_frame"),
+            (identity(), "unexpected_response"),
+            (frame(1, 6, [(1, b"\x00")]), "unexpected_response"),
+            (STARTUP_FRAME + identity(), "unexpected_response"),
+        )
+        for startup_frame, expected in cases:
+            fake_socket = FakeSocket(startup_frame=startup_frame)
+            patches = self.socket_constants()
+            with self.subTest(expected=expected):
+                with patches[0], patches[1], patches[2], patches[3]:
+                    transport = bridge.RfcommTransport(socket_factory=lambda *_: fake_socket)
+                    try:
+                        with self.assertRaisesRegex(bridge.BridgeError, expected):
+                            transport.connect(ADDRESS, 3.0)
+                    finally:
+                        transport.close()
 
     def test_security_level_above_medium_is_accepted_without_alternate_call(self):
         fake_socket = FakeSocket(reported_security=b"\x03\x00")
@@ -307,6 +345,7 @@ class RfcommTransportPolicyTests(unittest.TestCase):
                 protocol_events,
                 [
                     ("connect", (ADDRESS, bridge.RFCOMM_CHANNEL)),
+                    ("recv", bridge.MAX_FRAME_BYTES),
                     "readiness",
                     ("sendall", bridge.DEVICE_INFO_QUERY),
                     ("recv", bridge.MAX_FRAME_BYTES),

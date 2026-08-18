@@ -428,6 +428,20 @@ class ConfigStoreTests(unittest.TestCase):
 
         def swap_after_replace(source, target, **kwargs):
             original_replace(source, target, **kwargs)
+            installed = os.stat(
+                target,
+                dir_fd=kwargs["dst_dir_fd"],
+                follow_symlinks=False,
+            )
+            installed_identity = (installed.st_dev, installed.st_ino)
+            open_identities = set()
+            for descriptor_name in os.listdir("/proc/self/fd"):
+                try:
+                    opened = os.fstat(int(descriptor_name))
+                except (OSError, ValueError):
+                    continue
+                open_identities.add((opened.st_dev, opened.st_ino))
+            self.assertIn(installed_identity, open_identities)
             os.unlink(target, dir_fd=kwargs["dst_dir_fd"])
             os.symlink(external, target, dir_fd=kwargs["dst_dir_fd"])
 

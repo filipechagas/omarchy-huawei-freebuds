@@ -49,6 +49,17 @@ def synthetic_identity(overrides=None, omit=()):
 
 
 class RetainedFrameTests(unittest.TestCase):
+    def test_captured_startup_frame_is_byte_exact(self):
+        self.assertEqual(bridge.STARTUP_FRAME.hex().upper(), "5A00030001063EBD")
+        self.assertEqual(
+            bridge.parse_frame(bridge.STARTUP_FRAME),
+            {
+                "service": 0x01,
+                "command": 0x06,
+                "tlvs": (),
+            },
+        )
+
     def test_immutable_frames_are_byte_exact(self):
         expected = (
             "5A00210001070100020003000400050006000700080009000A000B000C000F0018001900DFF3",
@@ -273,7 +284,13 @@ class SemanticDecoderTests(unittest.TestCase):
 class DeterministicMutationTests(unittest.TestCase):
     def test_fixed_seed_mutations_are_bounded_and_contained(self):
         random_source = random.Random(0x00016D)
-        corpus = list(bridge.RETAINED_FRAMES) + [CAPTURED_BATTERY, *CAPTURED_ANC.values(), synthetic_identity()]
+        corpus = [
+            bridge.STARTUP_FRAME,
+            *bridge.RETAINED_FRAMES,
+            CAPTURED_BATTERY,
+            *CAPTURED_ANC.values(),
+            synthetic_identity(),
+        ]
         for iteration in range(1000):
             original = bytearray(random_source.choice(corpus))
             mutation_count = random_source.randint(1, 4)

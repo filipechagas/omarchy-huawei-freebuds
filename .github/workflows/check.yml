@@ -573,6 +573,7 @@ jobs:
                   self.security = None
                   self.target = None
                   self.closed = False
+                  self.responses = [bridge.STARTUP_FRAME]
 
               def settimeout(self, _timeout):
                   pass
@@ -587,6 +588,9 @@ jobs:
 
               def connect(self, target):
                   self.target = target
+
+              def recv(self, _size):
+                  return self.responses.pop(0) if self.responses else b""
 
               def close(self):
                   self.closed = True
@@ -610,7 +614,7 @@ jobs:
           assert probe.closed
           PY
 
-      - name: Verify immutable command frames
+      - name: Verify immutable protocol frames
         run: |
           python3 - <<'PY'
           import binascii
@@ -621,6 +625,7 @@ jobs:
           from pathlib import Path
 
           expected_hex = {
+              "startup": "5A00030001063EBD",
               "device_info": "5A00210001070100020003000400050006000700080009000A000B000C000F0018001900DFF3",
               "battery": "5A0009000108010002000300FBB9",
               "anc_read": "5A0005002B2A0100427E",
@@ -629,6 +634,7 @@ jobs:
               "set_awareness": "5A0007002B04010202FFAABF",
           }
           expected_hashes = {
+              "startup": "2c0fa279e218e061afe8f9c4b403b230493549e0aef0ee48b664d3e3d748be50",
               "device_info": "7b555619d3781d85e996a1e3ef0610e9de507ddf53065a8b13b25145e4c84c97",
               "battery": "d93d1c0ab99ab9a3e67ccce97416670e6d49ba2f22423183eec487aa9c72c63b",
               "anc_read": "1d9c0ec87d88001a1367b2cfe7f8b498d0104b1c6c5b485d707a051689548485",

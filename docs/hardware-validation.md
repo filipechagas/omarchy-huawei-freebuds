@@ -36,7 +36,7 @@ config, or private battery snapshot.
 | ID | Physical procedure | Pass condition | Result |
 |---|---|---|---|
 | HW-01 | Open the panel while the paired earbuds are disconnected. | Generic disconnected state is accurate and no RFCOMM socket opens. | Not run |
-| HW-02 | Connect through Omarchy Bluetooth, then open the panel. | Exactly one channel-1 connection uses explicit `BT_SECURITY_MEDIUM`; no SDP, scan, or downgrade occurs. | Not run |
+| HW-02 | Connect through Omarchy Bluetooth, then open the panel. | Exactly one channel-1 connection uses explicit `BT_SECURITY_MEDIUM`, consumes one exact empty `01/06` startup frame before the first query, and performs no SDP, scan, or downgrade. | Not run |
 | HW-03 | Capture the DeviceInfo response privately. | A complete CRC-valid `01/07` response passes every strict identity field check and tag `0A` ends in `00016D`. | Not run |
 | HW-04 | Run three panel-open or explicit Retry refreshes. | Every request repeats identity verification, returns at least one retained Pro 5 shape, and closes its socket. | Not run |
 | HW-05 | Compare decoded left, right, and case values with controlled physical placement. | Tag-02 ordering agrees, missing data remains `Not reported`, and aggregate data is never substituted for a component. | Not run |

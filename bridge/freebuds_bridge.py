@@ -31,6 +31,7 @@ WORKER_JOIN_TIMEOUT_SECONDS = 1.0
 CONFIG_LOCK_TIMEOUT_SECONDS = 1.0
 CONFIG_LOCK_POLL_SECONDS = 0.01
 
+STARTUP_FRAME = bytes.fromhex("5A00030001063EBD")
 DEVICE_INFO_QUERY = bytes.fromhex(
     "5A00210001070100020003000400050006000700080009000A000B000C000F0018001900DFF3"
 )
@@ -114,9 +115,9 @@ def crc16_xmodem(data):
 
 
 def validate_retained_frames():
-    """Fail if an immutable captured request or write frame was corrupted."""
+    """Fail if an immutable captured protocol frame was corrupted."""
 
-    for frame in RETAINED_FRAMES:
+    for frame in (STARTUP_FRAME,) + RETAINED_FRAMES:
         if len(frame) < 8 or frame[0] != 0x5A:
             raise RuntimeError("retained frame self-check failed")
         declared_length = int.from_bytes(frame[1:3], "big")
@@ -229,6 +230,13 @@ def _expect_response(frame, service, command):
     tlvs = parsed.get("tlvs")
     if not isinstance(tlvs, tuple):
         raise BridgeError("invalid_frame")
+    return parsed
+
+
+def _expect_startup(frame):
+    parsed = _expect_response(frame, 0x01, 0x06)
+    if parsed["tlvs"]:
+        raise BridgeError("unexpected_response")
     return parsed
 
 
@@ -354,6 +362,7 @@ class RfcommTransport:
                 raise BridgeError("transport_unsupported") from error
             self._socket = active_socket
 
+        deadline = self._clock() + timeout
         try:
             active_socket.settimeout(timeout)
             security = struct.pack("BB", BT_SECURITY_MEDIUM_LEVEL, 0)
@@ -374,7 +383,13 @@ class RfcommTransport:
             raise BridgeError("security_failed") from error
 
         try:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                raise BridgeError("timeout")
+            active_socket.settimeout(remaining)
             active_socket.connect((address, RFCOMM_CHANNEL))
+        except BridgeError:
+            raise
         except (socket.timeout, TimeoutError) as error:
             raise BridgeError("timeout") from error
         except OSError as error:
@@ -384,6 +399,14 @@ class RfcommTransport:
             if error.errno in busy_errors:
                 raise BridgeError("transport_busy") from error
             raise BridgeError("connect_failed") from error
+
+        remaining = deadline - self._clock()
+        if remaining <= 0:
+            raise BridgeError("timeout")
+        startup = self.receive_frame(remaining)
+        _expect_startup(startup)
+        if self._clock() > deadline:
+            raise BridgeError("timeout")
 
     def send_device_info_query(self, timeout):
         self._send_fixed_operation("device_info", timeout)
@@ -894,12 +917,12 @@ class ConfigStore:
                 allow_nan=False,
                 separators=(",", ":"),
             ).encode("utf-8") + b"\n"
-            with os.fdopen(descriptor, "wb", closefd=True) as temporary_file:
-                descriptor = -1
+            # Keep the inode pinned until post-replace verification and rollback finish.
+            with os.fdopen(os.dup(descriptor), "wb", closefd=True) as temporary_file:
                 temporary_file.write(payload)
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
-                temporary_stat = os.fstat(temporary_file.fileno())
+                temporary_stat = os.fstat(descriptor)
                 installed_identity = (temporary_stat.st_dev, temporary_stat.st_ino)
             install_attempted = True
             os.replace(
@@ -931,11 +954,6 @@ class ConfigStore:
             os.fsync(parent_descriptor)
             install_attempted = False
         except (OSError, ValueError) as error:
-            if descriptor >= 0:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    pass
             if temporary_name is not None and parent_descriptor >= 0:
                 try:
                     os.unlink(temporary_name, dir_fd=parent_descriptor)
@@ -949,6 +967,11 @@ class ConfigStore:
                 self._rollback_installed(parent_descriptor, installed_identity)
             raise BridgeError("config_write_failed") from error
         finally:
+            if descriptor >= 0:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
             if parent_descriptor >= 0:
                 os.close(parent_descriptor)
 
