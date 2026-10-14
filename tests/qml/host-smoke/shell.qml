@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import qs.Commons as Commons
 
 ShellRoot {
     id: root
@@ -41,6 +42,8 @@ ShellRoot {
         panel.moduleName = "io.github.filipechagas.freebuds"
         panel.settings = {}
         panel.bar = barObject
+        check(panel.panelForeground === Commons.Color.popups.text,
+              "Popup text must follow popup colors, including when the bar uses dark text")
         return panel
     }
 
@@ -228,6 +231,17 @@ ShellRoot {
         check(secondPanel && secondPanel.visible,
               "Second bar widget is not always visible")
 
+        if (firstPanel) {
+            firstPanel.close()
+            firstPanel.open()
+        }
+        check(serviceObject && !serviceObject.pending,
+              "Reopening fresh status triggered another private connection")
+        check(serviceObject && serviceObject.componentBatteryRows.length === 3,
+              "Reopening fresh status discarded battery observations")
+        check(firstPanel && firstPanel.rowIndex("refresh", "refresh") >= 0,
+              "Manual refresh is missing from keyboard navigation")
+
         destroyService()
         if (replacementPhase)
             finalServiceGone.start()
@@ -321,7 +335,7 @@ ShellRoot {
         property string position: "top"
         property string fontFamily: "monospace"
         property color foreground: "white"
-        property color barForeground: "white"
+        property color barForeground: "black"
         property color urgent: "red"
         property bool foregroundAnimationEnabled: false
         property var activePopout: null

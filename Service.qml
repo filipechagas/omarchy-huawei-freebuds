@@ -114,6 +114,12 @@ Item {
             return false;
         if (_state.configInvalid)
             return rejectRequest("config_invalid");
+        _state = Model.reduce(_state, {
+            type: "age",
+            nowMs: Date.now()
+        });
+        if (Model.canReusePrivateStatus(_state))
+            return true;
         return privateTransactions.startRefresh("panel");
     }
 

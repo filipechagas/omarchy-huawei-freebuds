@@ -95,6 +95,74 @@ TestCase {
         return state
     }
 
+    function test_reuseOnlyCompleteFreshConnectedStatus() {
+        var state = withPrivateState(addressA, [device(addressA)])
+        verify(Model.canReusePrivateStatus(state))
+        verify(Model.deriveView(state).canRefreshFresh)
+        verify(Model.contactDecision(state, "retry").ok)
+        var boundary = Model.reduce(state, { type: "age", nowMs: 131000 })
+        verify(Model.canReusePrivateStatus(boundary))
+        var stale = Model.reduce(state, { type: "age", nowMs: 132000 })
+        verify(!Model.canReusePrivateStatus(stale))
+        var partial = withPrivateState(addressA, [device(addressA)], {anc: null, ancError: "anc_invalid"})
+        verify(!Model.canReusePrivateStatus(partial))
+        var disconnected = Model.reduce(state, {type: "generic", snapshot: generic([device(addressA, {connected: false})])})
+        verify(!Model.canReusePrivateStatus(disconnected))
+        var failed = Model.reduce(state, {type: "helper_failed", code: "helper_stopped"})
+        verify(!Model.canReusePrivateStatus(failed))
+        var busy = Model.reduce(state, {type: "request_started", pending: pending(state, "refresh", addressA, false)})
+        verify(!Model.canReusePrivateStatus(busy))
+        var rollback = Model.reduce(state, {type: "age", nowMs: 0})
+        verify(!Model.canReusePrivateStatus(rollback))
+    }
+
+    function test_casePresenceAndIndividualTooltip() {
+        var state = withPrivateState(addressA, [device(addressA)], {
+            left: 0, right: 80, leftInCase: false, rightInCase: true
+        })
+        var view = Model.deriveView(state)
+        compare(view.batteryRows[0].detailText, "0% · Out of case")
+        compare(view.batteryRows[1].detailText, "80% · In case")
+        compare(view.batteryRows[2].status, "")
+        compare(view.barPercentText, "0%")
+        verify(view.barTooltip.indexOf("Left 0%; Right 80%; Case 54%") >= 0)
+    }
+
+    function test_presenceValidation() {
+        var state = readyState(addressA, [device(addressA)])
+        var request = pending(state, "refresh", addressA, false)
+        var invalid = [
+            {leftInCase: true},
+            {leftInCase: 0, rightInCase: 1},
+            {leftInCase: false, rightInCase: null},
+            {left: null, right: null, case: null, batteryError: "battery_invalid",
+                leftInCase: false, rightInCase: true}
+        ]
+        for (var i = 0; i < invalid.length; i++)
+            compare(Model.validateRefreshResult(refreshResult(state, addressA, invalid[i]), request).ok, false)
+        verify(Model.validateRefreshResult(refreshResult(state, addressA), request).ok)
+    }
+
+    function test_ancHasIndependentAgeAndPendingTarget() {
+        var state = withPrivateState(addressA, [device(addressA)])
+        state = Model.reduce(state, {type: "age", nowMs: 61000})
+        var request = pending(state, "set_anc", addressA, false)
+        request.mode = "awareness"
+        state = Model.reduce(state, {type: "request_started", pending: request})
+        var view = Model.deriveView(state)
+        compare(view.pendingAncMode, "awareness")
+        compare(view.ancMode, null)
+        verify(view.message.indexOf("Awareness; awaiting confirmation") >= 0)
+        state = Model.applyBridgeMessage(state, {
+            v: 1, type: "result", id: 7, generation: state.generation,
+            address: addressA, verified: true, anc: "awareness"
+        }, 61000)
+        view = Model.deriveView(state)
+        compare(view.ancMode, "awareness")
+        compare(view.pendingAncMode, "")
+        verify(view.batteryAgeText !== view.ancAgeText)
+    }
+
     function test_genericSnapshotsAreDefensive() {
         var nullSnapshot = Model.normalizeGeneric(null)
         compare(nullSnapshot.adapterPresent, false)
@@ -809,7 +877,7 @@ TestCase {
         compare(view.showAggregateBattery, false)
         compare(view.barPercentText, "96%")
         verify(view.barAccessibleName.indexOf("lowest earbud 96 percent") >= 0)
-        verify(view.barTooltip.indexOf("Lowest earbud 96%") >= 0)
+        verify(view.barTooltip.indexOf("Left 97%; Right 96%; Case 54%") >= 0)
 
         genericValue = Model.reduce(genericValue, { type: "age", nowMs: 132000 })
         view = Model.deriveView(genericValue)

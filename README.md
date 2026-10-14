@@ -83,7 +83,9 @@ installation or updates.
    connects, disconnects, forgets, scans, changes adapter power, or changes an
    audio profile.
 2. Open the FreeBuds Pro 5 panel. Opening it may start one bounded private
-   refresh for one eligible connected device.
+   refresh for one eligible connected device. Complete battery and ANC readings
+   that are still fresh are reused when reopening the panel. Use `Refresh` to
+   request a new reading immediately; `Retry` remains available after errors.
 3. If several exact-name candidates exist, select one locally and press
    `Retry`. Selecting a row alone does not contact or save the device.
 4. With a verified component read, use the left, right, and case rows; the bar
@@ -97,6 +99,18 @@ Private data is fresh through 130 seconds. It is marked out of date from 131
 seconds through 10 minutes and then cleared. Reconnecting, closing the panel,
 or waiting does not contact the private channel. Press `Retry` for a new,
 single attempt.
+
+## Reporting
+
+The panel reports each earbud's in/out-of-case status when verified Pro 5 data
+is available. This is not a charging indicator. Hovering the widget shows the
+left, right and case percentages. Battery and noise-control observations have
+separate age labels; ANC actions show the requested mode while waiting for
+confirmation and only select it after successful readback.
+
+The bridge sends its identity query without waiting for the optional `01/06`
+startup frame. The UI distinguishes an unanswered identity query
+(`identity_timeout`) from a connection failure.
 
 ## Privacy And Security
 

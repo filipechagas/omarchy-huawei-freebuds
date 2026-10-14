@@ -65,6 +65,22 @@ Ui.Panel {
             return "Retry to refresh noise control before changing it";
         return "Noise control is not currently available";
     }
+    // The bar can switch to dark text over a bright wallpaper. Popup text
+    // must follow its own surface palette instead of inheriting that color.
+    readonly property color panelForeground: Commons.Color.popups.text
+    readonly property color panelSecondary: Qt.rgba(panelForeground.r, panelForeground.g, panelForeground.b, 0.78)
+    readonly property string statusDetail: {
+        var code = currentView.messageCode || "";
+        if (code === "identity_timeout")
+            return "The control channel connected but did not answer. Reconnect the earbuds in Omarchy Bluetooth, then retry.";
+        if (code === "transport_busy")
+            return "The control channel is still occupied. Reconnect the earbuds in Omarchy Bluetooth, then retry.";
+        if (code === "timeout" || code === "connect_failed" || code === "transport_busy" || code === "socket_closed")
+            return currentView.connected ? "Bluetooth audio is connected, but the control channel is unavailable. Reconnect the earbuds in Omarchy Bluetooth, then retry." : "Connect the earbuds in Omarchy Bluetooth, then retry.";
+        if (code === "security_failed" || code === "transport_unsupported")
+            return "The secure control channel is unavailable. Bluetooth battery status remains available.";
+        return "";
+    }
     readonly property var cursorRows: buildCursorRows()
 
     visible: true
@@ -123,6 +139,11 @@ Ui.Panel {
                 key: "awareness"
             });
         }
+        if (hasService && currentView.canRefreshFresh)
+            rows.push({
+                kind: "refresh",
+                key: "refresh"
+            });
         if (hasService && currentView.primaryAction && currentView.primaryAction !== "none" && currentView.primaryActionEnabled) {
             rows.push({
                 kind: "primary",
@@ -177,6 +198,8 @@ Ui.Panel {
         var row = cursorRows[cursorIndex];
         if (row.kind === "anc")
             keepVisible(noiseGrid);
+        else if (row.kind === "refresh")
+            keepVisible(refreshButton);
         else if (row.kind === "primary")
             keepVisible(primaryButton);
     }
@@ -210,10 +233,10 @@ Ui.Panel {
         } else if (current.kind === "candidate") {
             if (dy !== 0)
                 next = Math.max(0, Math.min(cursorRows.length - 1, cursorIndex + dy));
-        } else if (current.kind === "primary" && dy < 0 && ancVisible && noiseGrid.columns === 3) {
+        } else if ((current.kind === "refresh" || (current.kind === "primary" && !currentView.canRefreshFresh)) && dy < 0 && ancVisible && noiseGrid.columns === 3) {
             var selectedMode = rowIndex("anc", ancMode);
             next = selectedMode >= 0 ? selectedMode : rowIndex("anc", "off");
-        } else if (current.kind === "primary" && dy !== 0) {
+        } else if ((current.kind === "primary" || current.kind === "refresh") && dy !== 0) {
             next = Math.max(0, Math.min(cursorRows.length - 1, cursorIndex + dy));
         }
         setCursorIndex(next);
@@ -228,6 +251,8 @@ Ui.Panel {
             freebuds.markCandidate(row.key);
         else if (row.kind === "anc")
             freebuds.setAnc(row.key);
+        else if (row.kind === "refresh" && currentView.canRefreshFresh)
+            freebuds.retry();
         else if (row.kind === "primary")
             activatePrimary();
     }
@@ -243,7 +268,7 @@ Ui.Panel {
 
     function privateRowAccessibleName(row) {
         var label = row.key === "case" ? "Charging case" : row.label + " earbud";
-        return label + " battery, " + row.value + " percent, " + String(currentView.privateAgeText || "last report unavailable").toLowerCase();
+        return label + " battery, " + row.value + " percent, " + (row.status ? row.status + ", " : "") + String(currentView.batteryAgeText || "last report unavailable").toLowerCase();
     }
 
     onFreebudsChanged: {
@@ -401,12 +426,12 @@ Ui.Panel {
                     Ui.PanelHero {
                         title: "FreeBuds Pro 5"
                         meta: root.connectionText
-                        foreground: root.barForeground
+                        foreground: root.panelForeground
                         fontFamily: root.fontFamily
                         iconComponent: Component {
                             Text {
                                 text: "󰋋"
-                                color: root.barForeground
+                                color: root.panelForeground
                                 font.family: root.fontFamily
                                 font.pixelSize: root.displayFontSize
                                 Accessible.ignored: true
@@ -415,7 +440,7 @@ Ui.Panel {
                     }
 
                     Ui.PanelSeparator {
-                        foreground: root.barForeground
+                        foreground: root.panelForeground
                         Accessible.ignored: true
                     }
 
@@ -425,7 +450,7 @@ Ui.Panel {
 
                         Ui.PanelSectionHeader {
                             text: "STATUS"
-                            foreground: root.barForeground
+                            foreground: root.panelForeground
                             fontFamily: root.fontFamily
                         }
 
@@ -443,7 +468,7 @@ Ui.Panel {
                     }
 
                     Ui.PanelSeparator {
-                        foreground: root.barForeground
+                        foreground: root.panelForeground
                         Accessible.ignored: true
                     }
 
@@ -453,7 +478,7 @@ Ui.Panel {
 
                         Ui.PanelSectionHeader {
                             text: "BATTERY"
-                            foreground: root.barForeground
+                            foreground: root.panelForeground
                             fontFamily: root.fontFamily
                         }
 
@@ -461,6 +486,7 @@ Ui.Panel {
                             visible: root.currentView.showAggregateBattery !== false
                             label: "Earbuds"
                             value: root.currentView.aggregateText || "Not reported"
+                            batteryPercent: root.currentView.aggregatePercent === null || root.currentView.aggregatePercent === undefined ? -1 : root.currentView.aggregatePercent
                             accessibleName: root.currentView.aggregatePercent === null || root.currentView.aggregatePercent === undefined ? "Earbuds battery not reported" : "Earbuds battery, " + root.currentView.aggregatePercent + " percent"
                         }
 
@@ -471,15 +497,17 @@ Ui.Panel {
                                 required property var modelData
                                 label: modelData.label
                                 value: modelData.text
+                                detail: modelData.status || ""
+                                batteryPercent: modelData.value
                                 accessibleName: root.privateRowAccessibleName(modelData)
                             }
                         }
 
                         Text {
-                            visible: root.batteryRows.length > 0 || (root.currentView.ancVisible === true && root.currentView.privateAgeText)
+                            visible: root.batteryRows.length > 0
                             width: parent.width
-                            text: root.currentView.privateAgeText || ""
-                            color: Commons.Color.muted
+                            text: root.currentView.batteryAgeText || ""
+                            color: root.panelSecondary
                             font.family: root.fontFamily
                             font.pixelSize: root.captionFontSize
                             wrapMode: Text.WordWrap
@@ -494,13 +522,13 @@ Ui.Panel {
                         spacing: Commons.Style.space(8)
 
                         Ui.PanelSeparator {
-                            foreground: root.barForeground
+                            foreground: root.panelForeground
                             Accessible.ignored: true
                         }
 
                         Ui.PanelSectionHeader {
                             text: "NOISE CONTROL"
-                            foreground: root.barForeground
+                            foreground: root.panelForeground
                             fontFamily: root.fontFamily
                         }
 
@@ -533,12 +561,12 @@ Ui.Panel {
                                     id: modeButton
                                     required property var modelData
                                     width: noiseGrid.columns === 1 ? noiseGrid.width : (noiseGrid.width - noiseGrid.columnSpacing * 2) / 3
-                                    text: modelData.label
+                                    text: modelData.label + (root.currentView.pendingAncMode === modelData.key ? "…" : "")
                                     bordered: true
                                     selected: root.ancMode === modelData.key
                                     enabled: root.ancEnabled
                                     opacity: enabled ? 1 : 0.5
-                                    foreground: root.barForeground
+                                    foreground: root.panelForeground
                                     fontFamily: root.fontFamily
                                     hasCursor: root.cursorActive && root.cursorIndex === root.rowIndex("anc", modelData.key)
                                     onClicked: if (root.hasService)
@@ -564,10 +592,10 @@ Ui.Panel {
                         }
 
                         Text {
-                            visible: !root.ancEnabled
+                            visible: true
                             width: parent.width
-                            text: root.ancDisabledReason
-                            color: Commons.Color.muted
+                            text: root.currentView.pendingAncMode ? root.currentView.message : (root.currentView.ancAgeText || "Not reported") + (!root.ancEnabled ? ". " + root.ancDisabledReason : "")
+                            color: root.panelSecondary
                             font.family: root.fontFamily
                             font.pixelSize: root.captionFontSize
                             wrapMode: Text.WordWrap
@@ -584,13 +612,13 @@ Ui.Panel {
                         Accessible.name: "FreeBuds candidates"
 
                         Ui.PanelSeparator {
-                            foreground: root.barForeground
+                            foreground: root.panelForeground
                             Accessible.ignored: true
                         }
 
                         Ui.PanelSectionHeader {
                             text: "DEVICE"
-                            foreground: root.barForeground
+                            foreground: root.panelForeground
                             fontFamily: root.fontFamily
                         }
 
@@ -604,16 +632,81 @@ Ui.Panel {
                         }
                     }
 
-                    Text {
+                    Rectangle {
                         visible: root.statusMessage !== ""
                         width: parent.width
-                        text: root.statusMessage
-                        color: root.currentView.messageCode ? Commons.Color.muted : root.barForeground
-                        font.family: root.fontFamily
-                        font.pixelSize: root.bodySmallFontSize
-                        wrapMode: Text.WordWrap
-                        Accessible.role: Accessible.StaticText
+                        implicitHeight: statusColumn.implicitHeight + Commons.Style.space(12) * 2
+                        radius: Commons.Style.cornerRadius
+                        color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.06)
+
+                        Column {
+                            id: statusColumn
+                            x: Commons.Style.space(12)
+                            y: Commons.Style.space(12)
+                            width: parent.width - x * 2
+                            spacing: Commons.Style.space(6)
+
+                            Text {
+                                width: parent.width
+                                text: root.statusMessage
+                                textFormat: Text.PlainText
+                                color: root.panelForeground
+                                font.family: root.fontFamily
+                                font.pixelSize: root.bodySmallFontSize
+                                font.bold: true
+                                wrapMode: Text.WordWrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
+
+                            Text {
+                                visible: root.statusDetail !== ""
+                                width: parent.width
+                                text: root.statusDetail
+                                textFormat: Text.PlainText
+                                color: root.panelSecondary
+                                font.family: root.fontFamily
+                                font.pixelSize: root.bodySmallFontSize
+                                wrapMode: Text.WordWrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
+
+                            Controls.ProgressBar {
+                                visible: root.currentView.pending === true
+                                width: parent.width
+                                indeterminate: visible
+                                Accessible.name: "Request in progress"
+                            }
+                        }
+                    }
+
+                    Ui.Button {
+                        id: refreshButton
+                        visible: root.hasService && root.currentView.canRefreshFresh === true
+                        enabled: visible
+                        width: parent.width
+                        text: "Refresh"
+                        bordered: true
+                        focusable: false
+                        foreground: root.panelForeground
+                        fontFamily: root.fontFamily
+                        hasCursor: root.cursorActive && root.cursorKind === "refresh"
+                        onClicked: if (enabled)
+                            root.freebuds.retry()
+                        onHovered: function (hovered) {
+                            if (hovered && enabled)
+                                root.setCursor("refresh", "refresh");
+                        }
+                        onHasCursorChanged: if (hasCursor)
+                            Qt.callLater(function () {
+                                root.keepVisible(refreshButton);
+                            })
+                        Accessible.role: Accessible.Button
                         Accessible.name: text
+                        Accessible.description: "Refreshes battery and noise control once"
+                        Accessible.onPressAction: if (enabled)
+                            root.freebuds.retry()
                     }
 
                     Ui.Button {
@@ -625,7 +718,7 @@ Ui.Panel {
                         focusable: false
                         enabled: root.currentView.primaryActionEnabled === true
                         opacity: enabled ? 1 : 0.5
-                        foreground: root.barForeground
+                        foreground: root.panelForeground
                         fontFamily: root.fontFamily
                         hasCursor: root.cursorActive && root.cursorIndex === root.rowIndex("primary", root.currentView.primaryAction || "")
                         onClicked: root.activatePrimary()
@@ -655,11 +748,15 @@ Ui.Panel {
         required property string label
         required property string value
         required property string accessibleName
+        property string detail: ""
+        property real batteryPercent: -1
+        readonly property bool hasBattery: batteryPercent >= 0 && batteryPercent <= 100
         readonly property int columnSpacing: Commons.Style.space(8)
         readonly property bool stacked: Model.shouldStackInfoRow(width, infoLabel.implicitWidth, infoValue.implicitWidth, columnSpacing)
 
         width: parent ? parent.width : implicitWidth
-        implicitHeight: stacked ? infoLabel.implicitHeight + columnSpacing + infoValue.implicitHeight : Math.max(infoLabel.implicitHeight, infoValue.implicitHeight)
+        readonly property real labelHeight: stacked ? infoLabel.implicitHeight + columnSpacing + infoValue.implicitHeight : Math.max(infoLabel.implicitHeight, infoValue.implicitHeight)
+        implicitHeight: labelHeight + (hasBattery ? Commons.Style.space(12) : 0) + (detail === "" ? 0 : infoDetail.implicitHeight + Commons.Style.space(4))
         Accessible.role: Accessible.StaticText
         Accessible.name: accessibleName
 
@@ -670,7 +767,7 @@ Ui.Panel {
             width: infoRow.stacked ? infoRow.width : Math.min(implicitWidth, Math.max(0, infoRow.width - infoRow.columnSpacing))
             text: infoRow.label
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             font.family: root.fontFamily
             font.pixelSize: root.bodyFontSize
             elide: Text.ElideRight
@@ -685,13 +782,42 @@ Ui.Panel {
             width: infoRow.stacked ? infoRow.width : Math.max(0, infoRow.width - x)
             text: infoRow.value
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             font.family: root.fontFamily
-            font.pixelSize: root.bodyFontSize
+            font.pixelSize: infoRow.hasBattery ? root.bodyFontSize * 1.5 : root.bodyFontSize
             font.bold: true
             horizontalAlignment: infoRow.stacked ? Text.AlignLeft : Text.AlignRight
             elide: Text.ElideRight
             maximumLineCount: 1
+            Accessible.ignored: true
+        }
+        Rectangle {
+            visible: infoRow.hasBattery
+            y: infoRow.labelHeight + Commons.Style.space(6)
+            width: infoRow.width
+            height: Commons.Style.space(4)
+            radius: height / 2
+            color: Qt.rgba(root.panelForeground.r, root.panelForeground.g, root.panelForeground.b, 0.14)
+            Accessible.ignored: true
+
+            Rectangle {
+                width: parent.width * Math.max(0, Math.min(100, infoRow.batteryPercent)) / 100
+                height: parent.height
+                radius: parent.radius
+                color: infoRow.batteryPercent <= 20 ? Commons.Color.urgent : root.panelForeground
+            }
+        }
+
+        Text {
+            id: infoDetail
+            visible: infoRow.detail !== ""
+            y: infoRow.labelHeight + (infoRow.hasBattery ? Commons.Style.space(12) : 0) + Commons.Style.space(4)
+            width: infoRow.width
+            text: infoRow.detail
+            color: root.panelSecondary
+            font.family: root.fontFamily
+            font.pixelSize: root.captionFontSize
+            wrapMode: Text.WordWrap
             Accessible.ignored: true
         }
     }
@@ -708,7 +834,7 @@ Ui.Panel {
         hasCursor: root.cursorActive && root.cursorIndex === actionIndex
         current: root.markedAddress === candidateRow.candidate.address
         bordered: true
-        foreground: root.barForeground
+        foreground: root.panelForeground
         enabled: root.hasService && !root.currentView.pending
         opacity: enabled ? 1 : 0.5
         onHasCursorChanged: if (hasCursor)
@@ -733,7 +859,7 @@ Ui.Panel {
             anchors.rightMargin: Commons.Style.space(8)
             text: candidateRow.candidate.displayLabel
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             font.family: root.fontFamily
             font.pixelSize: root.bodyFontSize
             font.bold: parent.current
@@ -747,7 +873,7 @@ Ui.Panel {
             anchors.rightMargin: Commons.Style.space(10)
             anchors.verticalCenter: parent.verticalCenter
             text: candidateRow.candidate.connected ? "Connected" : "Disconnected"
-            color: candidateRow.candidate.connected ? root.barForeground : Commons.Color.muted
+            color: candidateRow.candidate.connected ? root.panelForeground : root.panelSecondary
             font.family: root.fontFamily
             font.pixelSize: root.captionFontSize
             font.bold: true

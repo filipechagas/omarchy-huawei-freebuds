@@ -85,6 +85,7 @@ ERROR_MESSAGES = {
     "connect_failed": "Private channel is unavailable.",
     "transport_busy": "Private channel is busy.",
     "timeout": "Private request timed out.",
+    "identity_timeout": "Private channel connected, but device identification did not respond.",
     "socket_closed": "Private channel closed unexpectedly.",
     "invalid_frame": "Invalid private response.",
     "unexpected_response": "Unexpected private response.",
@@ -312,6 +313,8 @@ def decode_battery(frame):
         "left": components[0],
         "right": components[1],
         "case": components[2],
+        "leftInCase": presence[0] == 1,
+        "rightInCase": presence[1] == 1,
     }
 
 
@@ -415,10 +418,11 @@ class RfcommTransport:
         remaining = deadline - self._clock()
         if remaining <= 0:
             raise BridgeError("timeout")
-        startup = self.receive_frame(remaining, filter_control=False)
-        _expect_empty_control(startup)
-        if self._clock() > deadline:
-            raise BridgeError("timeout")
+        # Some Pro 5 firmware stays silent until the first query. The empty
+        # 01/06 control frame is optional, not a connection handshake. Queued
+        # controls are still validated at the send boundary, and a control
+        # arriving after the query is filtered by receive_frame(). Identity
+        # verification remains mandatory before exposing data or writing ANC.
 
     def send_device_info_query(self, timeout):
         self._send_fixed_operation("device_info", timeout)
@@ -790,9 +794,14 @@ class TransactionController:
         self._send(send_action, deadline)
         response_timeout = min(RESPONSE_TIMEOUT_SECONDS, self._remaining(deadline))
         response_deadline = self._clock() + response_timeout
-        frame = transport.receive_frame(response_timeout)
-        if self._clock() > response_deadline:
-            raise BridgeError("timeout")
+        try:
+            frame = transport.receive_frame(response_timeout)
+            if self._clock() > response_deadline:
+                raise BridgeError("timeout")
+        except BridgeError as error:
+            if error.code == "timeout" and (service, command) == (0x01, 0x07):
+                raise BridgeError("identity_timeout") from error
+            raise
         self._remaining(deadline)
         return _expect_response(frame, service, command)
 
@@ -1528,6 +1537,8 @@ class JsonlProcess:
             "left": battery["left"] if battery is not None else None,
             "right": battery["right"] if battery is not None else None,
             "case": battery["case"] if battery is not None else None,
+            "leftInCase": battery.get("leftInCase") if battery is not None else None,
+            "rightInCase": battery.get("rightInCase") if battery is not None else None,
             "anc": anc["mode"] if anc is not None else None,
             "batteryError": result.get("batteryError"),
             "ancError": result.get("ancError"),

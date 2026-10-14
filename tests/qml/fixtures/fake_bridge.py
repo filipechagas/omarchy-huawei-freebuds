@@ -79,6 +79,8 @@ def main():
                     "left": 72,
                     "right": 68,
                     "case": 54,
+                    "leftInCase": False,
+                    "rightInCase": True,
                     "anc": "anc",
                     "batteryError": None,
                     "ancError": None,

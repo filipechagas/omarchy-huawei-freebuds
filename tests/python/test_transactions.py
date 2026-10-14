@@ -232,39 +232,40 @@ class RfcommTransportPolicyTests(unittest.TestCase):
         self.assertIn(("get_security", 274, 4, 2), fake_socket.events)
         self.assertTrue(fake_socket.closed)
 
-    def test_connect_consumes_the_exact_empty_startup_frame_before_queries(self):
-        fake_socket = FakeSocket(recv_chunks=[identity()])
+    def test_silent_peer_is_queried_without_waiting_for_startup(self):
+        fake_socket = FakeSocket(startup_frame=None, recv_chunks=[identity(), CAPTURED_BATTERY, CAPTURED_ANC["off"]])
         patches = self.socket_constants()
         with patches[0], patches[1], patches[2], patches[3]:
-            transport = bridge.RfcommTransport(socket_factory=lambda *_: fake_socket)
-            transport.connect(ADDRESS, 3.0)
-            response = transport.receive_frame(2.0)
-            transport.close()
+            transport = bridge.RfcommTransport(socket_factory=lambda *_: fake_socket, readiness=no_prior_input)
+            result = bridge.TransactionController(lambda: transport).refresh(ADDRESS)
+        self.assertTrue(result["readVerified"])
+        send_index = fake_socket.events.index(("sendall", bridge.DEVICE_INFO_QUERY))
+        recv_index = next(i for i, event in enumerate(fake_socket.events) if isinstance(event, tuple) and event[0] == "recv")
+        self.assertLess(send_index, recv_index)
+        self.assertTrue(fake_socket.closed)
 
-        self.assertEqual((response["service"], response["command"]), (1, 7))
-        self.assertEqual(response["tlvs"], bridge.parse_frame(identity())["tlvs"])
+    def test_optional_startup_is_consumed_before_first_query_when_ready(self):
+        fake_socket = FakeSocket(recv_chunks=[identity(), CAPTURED_BATTERY, CAPTURED_ANC["anc"]])
+        readiness = iter((True, False, False, False))
+        patches = self.socket_constants()
+        with patches[0], patches[1], patches[2], patches[3]:
+            transport = bridge.RfcommTransport(socket_factory=lambda *_: fake_socket, readiness=lambda _: next(readiness))
+            result = bridge.TransactionController(lambda: transport).refresh(ADDRESS)
+        self.assertEqual(result["anc"]["mode"], "anc")
+        self.assertEqual(sum(event == ("sendall", bridge.DEVICE_INFO_QUERY) for event in fake_socket.events), 1)
 
-    def test_connect_rejects_missing_malformed_or_nonexact_startup_frames(self):
+    def test_malformed_or_unsolicited_startup_blocks_first_query(self):
         damaged = bytearray(STARTUP_FRAME)
         damaged[-1] ^= 1
-        cases = (
-            (None, "socket_closed"),
-            (bytes(damaged), "invalid_frame"),
-            (identity(), "unexpected_response"),
-            (frame(1, 6, [(1, b"\x00")]), "unexpected_response"),
-            (STARTUP_FRAME + identity(), "unexpected_response"),
-        )
-        for startup_frame, expected in cases:
-            fake_socket = FakeSocket(startup_frame=startup_frame)
+        for startup in (bytes(damaged), identity(), frame(1, 6, [(1, b"\x00")]), STARTUP_FRAME + identity()):
+            fake_socket = FakeSocket(startup_frame=startup)
             patches = self.socket_constants()
-            with self.subTest(expected=expected):
-                with patches[0], patches[1], patches[2], patches[3]:
-                    transport = bridge.RfcommTransport(socket_factory=lambda *_: fake_socket)
-                    try:
-                        with self.assertRaisesRegex(bridge.BridgeError, expected):
-                            transport.connect(ADDRESS, 3.0)
-                    finally:
-                        transport.close()
+            with self.subTest(startup=startup.hex()), patches[0], patches[1], patches[2], patches[3]:
+                transport = bridge.RfcommTransport(socket_factory=lambda *_: fake_socket, readiness=lambda _: True)
+                with self.assertRaisesRegex(bridge.BridgeError, "unexpected_response"):
+                    bridge.TransactionController(lambda: transport).refresh(ADDRESS)
+            self.assertFalse(any(isinstance(event, tuple) and event[0] == "sendall" for event in fake_socket.events))
+            self.assertTrue(fake_socket.closed)
 
     def test_security_level_above_medium_is_accepted_without_alternate_call(self):
         fake_socket = FakeSocket(reported_security=b"\x03\x00")
@@ -410,6 +411,7 @@ class RfcommTransportPolicyTests(unittest.TestCase):
 
     def test_exact_empty_control_frames_are_consumed_around_expected_replies(self):
         fake_socket = FakeSocket(
+            startup_frame=None,
             recv_chunks=[
                 STARTUP_FRAME,
                 identity(),
@@ -899,6 +901,20 @@ class DeadlineAndClosureTests(unittest.TestCase):
         self.assertEqual(transport.connect_calls, [(ADDRESS, 3.0)])
         self.assertEqual(transport.close_calls, 1)
         self.assertEqual(transport.sent, [])
+
+    def test_identity_timeout_is_distinct_and_never_allows_reads_or_writes(self):
+        for method in ("refresh", "set_anc"):
+            transport = ScriptedTransport([bridge.BridgeError("timeout")])
+            controller, factory = self.controller(transport)
+            with self.subTest(method=method), self.assertRaises(bridge.BridgeError) as caught:
+                if method == "refresh":
+                    controller.refresh(ADDRESS)
+                else:
+                    controller.set_anc(ADDRESS, "anc")
+            self.assertEqual(caught.exception.code, "identity_timeout")
+            self.assertEqual(transport.sent, [bridge.DEVICE_INFO_QUERY])
+            self.assertEqual(transport.close_calls, 1)
+            self.assertEqual(factory.calls, 1)
 
     def test_default_transaction_clocks_use_linux_boottime(self):
         with mock.patch.object(bridge.time, "clock_gettime", return_value=123.5) as clock_gettime:

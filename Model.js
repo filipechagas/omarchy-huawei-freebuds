@@ -19,6 +19,7 @@ var BRIDGE_ERROR_CODES = [
     "connect_failed",
     "transport_busy",
     "timeout",
+    "identity_timeout",
     "socket_closed",
     "invalid_frame",
     "unexpected_response",
@@ -53,8 +54,9 @@ var USER_MESSAGES = {
     transport_unsupported: "Secure private channel unavailable",
     security_failed: "Secure private channel unavailable",
     connect_failed: "Private channel unavailable",
-    transport_busy: "Private channel unavailable",
+    transport_busy: "Private channel is busy",
     timeout: "Private request timed out",
+    identity_timeout: "Private channel connected; device identification did not respond",
     socket_closed: "Private channel unavailable",
     invalid_frame: "Invalid private response",
     unexpected_response: "Unexpected private response",
@@ -533,7 +535,7 @@ function validateRefreshResult(message, pending) {
         "v", "type", "id", "generation", "address", "verified", "selectedAddress",
         "left", "right", "case", "anc", "batteryError", "ancError"
     ]
-    if (!hasExactKeys(message, keys) || !validateResponseBase(message, pending))
+    if (!hasExactKeys(message, keys, ["leftInCase", "rightInCase"]) || !validateResponseBase(message, pending))
         return { ok: false }
     if (message.type !== "result"
             || message.address !== pending.address
@@ -551,6 +553,12 @@ function validateRefreshResult(message, pending) {
 
     var batteryValid = isPercent(message.left) && isPercent(message.right) && isPercent(message.case)
     var batteryEmpty = message.left === null && message.right === null && message.case === null
+    var hasPresence = hasOwn(message, "leftInCase") || hasOwn(message, "rightInCase")
+    if (hasPresence && (!hasOwn(message, "leftInCase") || !hasOwn(message, "rightInCase")
+            || !((message.leftInCase === null && message.rightInCase === null)
+                || (batteryValid && typeof message.leftInCase === "boolean"
+                    && typeof message.rightInCase === "boolean"))))
+        return { ok: false }
     if ((!batteryValid && !batteryEmpty)
             || (batteryValid && message.batteryError !== null)
             || (batteryEmpty && message.batteryError === null)) {
@@ -573,7 +581,9 @@ function validateRefreshResult(message, pending) {
         battery: batteryValid ? {
             left: message.left,
             right: message.right,
-            case: message.case
+            case: message.case,
+            leftInCase: hasPresence ? message.leftInCase : null,
+            rightInCase: hasPresence ? message.rightInCase : null
         } : null,
         anc: ancValid ? message.anc : null,
         batteryError: message.batteryError,
@@ -778,6 +788,17 @@ function selectedDevice(state) {
 function displayDevice(state) {
     return state.selectedAddress === null
         ? fallbackSelection(state.generic) : selectedDevice(state)
+}
+
+// Reuse only complete, current observations. Explicit Retry always contacts.
+function canReusePrivateStatus(state) {
+    return state.helperPhase === "ready" && state.pending === null
+        && !state.configInvalid && state.lastCode === null
+        && state.generic.adapterPresent && state.generic.adapterEnabled
+        && selectedDevice(state) !== null && selectedDevice(state).connected
+        && privateStateCurrent(state)
+        && observationFreshness(state.privateState.battery) === "fresh"
+        && observationFreshness(state.privateState.anc) === "fresh"
 }
 
 function contactDecision(state, trigger) {
@@ -1395,12 +1416,19 @@ function deriveView(state) {
             { key: "right", label: "Right", value: battery.right, text: formatPercent(battery.right) },
             { key: "case", label: "Case", value: battery.case, text: formatPercent(battery.case) }
         ]
+        for (var i = 0; i < rows.length; i++) {
+            var inCase = battery[rows[i].key + "InCase"]
+            rows[i].status = typeof inCase === "boolean"
+                ? (inCase ? "In case" : "Out of case") : ""
+            rows[i].detailText = rows[i].text
+                + (rows[i].status ? " · " + rows[i].status : "")
+        }
     }
 
     var message = code === null ? "" : errorMessage(code)
     if (state.pending !== null) {
         message = state.lastCode === "busy" ? errorMessage("busy")
-            : state.pending.method === "set_anc" ? "Changing noise control"
+            : state.pending.method === "set_anc" ? "Changing noise control to " + ancModeLabel(state.pending.mode) + "; awaiting confirmation"
             : state.pending.method === "clear_selection" ? "Clearing device selection"
             : "Refreshing private status"
     }
@@ -1414,6 +1442,7 @@ function deriveView(state) {
         helperPhase: state.helperPhase,
         pending: state.pending !== null,
         pendingMethod: state.pending ? state.pending.method : "",
+        canRefreshFresh: canReusePrivateStatus(state),
         connected: state.generic.adapterPresent && state.generic.adapterEnabled
             && displayed !== null && displayed.connected,
         connectionText: connection,
@@ -1423,6 +1452,9 @@ function deriveView(state) {
         batteryRows: rows,
         batteryFreshness: batteryFreshness,
         privateAgeText: ageLabel(battery || anc),
+        batteryAgeText: ageLabel(battery),
+        ancAgeText: ageLabel(anc),
+        pendingAncMode: state.pending && state.pending.method === "set_anc" ? state.pending.mode : "",
         ancVisible: capability.visible,
         ancEnabled: capability.enabled,
         ancMode: capability.mode,
@@ -1437,10 +1469,14 @@ function deriveView(state) {
         barAncText: barAncText,
         barAccessibleName: barName,
         barTooltip: "FreeBuds Pro 5: " + connection
-            + (splitBatteryFresh ? "; Lowest earbud " + barBatteryPercent + "%"
+            + (splitBatteryFresh ? "; Left " + battery.left + "%; Right " + battery.right + "%; Case " + battery.case + "%"
                 : barBatteryPercent === null ? "" : "; Earbuds " + barBatteryPercent + "%")
             + (barAncText === "" ? "" : "; Noise control: " + barAncText)
     }
+}
+
+function ancModeLabel(mode) {
+    return mode === "anc" ? "ANC" : mode === "awareness" ? "Awareness" : mode === "off" ? "Off" : "unknown"
 }
 
 function shouldStackInfoRow(rowWidth, labelWidth, valueWidth, spacing) {

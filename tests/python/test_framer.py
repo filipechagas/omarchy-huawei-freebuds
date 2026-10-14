@@ -203,15 +203,15 @@ class SemanticDecoderTests(unittest.TestCase):
         with self.assertRaisesRegex(bridge.BridgeError, "anc_invalid"):
             bridge.decode_anc(frame(0x2B, 0x2A, [(1, b"\x00\x03"), (2, b"\x05")]))
 
-    def test_captured_component_battery_decodes_only_components(self):
+    def test_captured_component_battery_decodes_components_and_case_presence(self):
         self.assertEqual(
             bridge.decode_battery(CAPTURED_BATTERY),
-            {"left": 100, "right": 100, "case": 85},
+            {"left": 100, "right": 100, "case": 85, "leftInCase": False, "rightInCase": True},
         )
 
     def test_zero_is_preserved_as_a_real_percentage(self):
         candidate = frame(1, 8, [(2, b"\x00\x32\x00"), (5, b"\x00\x01")])
-        self.assertEqual(bridge.decode_battery(candidate), {"left": 0, "right": 50, "case": 0})
+        self.assertEqual(bridge.decode_battery(candidate), {"left": 0, "right": 50, "case": 0, "leftInCase": False, "rightInCase": True})
 
     def test_percentage_above_100_is_rejected_not_clamped(self):
         candidate = frame(1, 8, [(2, b"\x65\x64\x55"), (5, b"\x00\x01")])
