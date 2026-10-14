@@ -46,7 +46,7 @@ class FakeController:
         self.refresh_result = refresh_result or {
             "identityVerified": True,
             "readVerified": True,
-            "battery": {"left": 100, "right": 100, "case": 85, "observedAt": 100.0},
+            "battery": {"left": 100, "right": 100, "case": 85, "leftInCase": False, "rightInCase": True, "observedAt": 100.0},
             "batteryError": None,
             "anc": {"mode": "off", "observedAt": 100.0},
             "ancError": None,
@@ -757,6 +757,7 @@ class JsonlValidationTests(unittest.TestCase):
             "connect_failed",
             "transport_busy",
             "timeout",
+            "identity_timeout",
             "socket_closed",
             "invalid_frame",
             "unexpected_response",
@@ -803,9 +804,11 @@ class JsonlSelectionAndRedactionTests(unittest.TestCase):
             set(lines[1]),
             {
                 "v", "type", "id", "generation", "address", "verified", "selectedAddress",
-                "left", "right", "case", "anc", "batteryError", "ancError",
+                "left", "right", "case", "anc", "batteryError", "ancError", "leftInCase", "rightInCase",
             },
         )
+        self.assertIs(lines[1]["leftInCase"], False)
+        self.assertIs(lines[1]["rightInCase"], True)
         self.assertEqual(bridge.ConfigStore(self.path).load(), (ADDRESS, None))
 
     def test_successful_anc_result_matches_model_wire_contract(self):

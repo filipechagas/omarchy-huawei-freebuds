@@ -6,6 +6,21 @@ Implementation target: `0.1.0`
 Plugin ID: `io.github.filipechagas.freebuds`
 License: `MIT`
 
+## Presence reporting
+
+The bridge additionally carries the retained Pro 5 tag-05 presence values
+through the bridge as `leftInCase` and `rightInCase`. Both optional JSONL v1
+fields must be present together: two booleans with valid component percentages,
+or two nulls when presence is unavailable. Older responses omitting both remain
+accepted. Unknown fields and malformed presence still fail validation.
+Presence means in/out of the case; it does not imply charging or being worn.
+
+The panel shows this status next to each earbud percentage, reports battery and
+ANC ages independently, and identifies the pending ANC target without selecting
+it as confirmed. The tooltip includes all three component percentages; the bar
+continues to show the lower earbud percentage. Transport, identity gates,
+security, no-replay behavior and mandatory ANC readback are unchanged.
+
 ## 1. Authority and scope
 
 This document is the closed architecture decision record for the first release. It supersedes every conflicting recommendation in the research reports. The reports remain evidence sources; they are not implementation authority. [`hardware-validation.md`](hardware-validation.md) is the authoritative physical release ledger.
@@ -344,14 +359,18 @@ The stream parser:
 - Requires the expected service/command for the current request.
 - Treats one malformed or unexpected response as a transaction fault.
 
-Immediately after the medium-security RFCOMM connection, the transport requires
-and consumes one exact CRC-valid empty `01/06` startup frame:
-`5A00030001063EBD`. It sends no application frame before this preamble. A
-missing, malformed, non-empty, combined, or different startup frame faults the
-transaction. Before every query or write, input already visible at the send
-boundary is accepted only when it is exactly one empty `01/06` control frame.
-The bridge consumes that frame and reapplies the boundary before sending; any
-other or additional queued input faults the transaction.
+After the medium-security RFCOMM connection, the transport sends its first
+identity query without waiting for unsolicited data. The empty `01/06` control
+frame (`5A00030001063EBD`) is optional: a Pro 5 may accept RFCOMM without
+sending this preamble. Before every query or write, input already visible at
+the send boundary is accepted only when it is exactly one empty `01/06` control
+frame. The bridge consumes that frame and reapplies the boundary before sending;
+any other or additional queued input faults the transaction.
+
+An identity query that was sent successfully but receives no response reports
+`identity_timeout`, separately from a connection timeout. This never authorizes
+component reads or ANC writes. Deadlines, security and no-retry behavior remain
+unchanged.
 
 The same exact empty `01/06` frame may recur once while the bridge waits for an
 expected query, acknowledgement, or readback response. It may arrive alone or
@@ -408,7 +427,7 @@ retained corpus does not establish enough Pro 5 semantics for those values.
 
 A refresh performs this sequence on one socket:
 
-1. Require the exact empty `01/06` startup frame within the connection deadline.
+1. Establish medium-security RFCOMM within the connection deadline; do not wait for an optional `01/06` control frame.
 2. Query and strictly verify DeviceInfo `00016D`.
 3. Query battery once and independently decode the Pro 5 battery shape.
 4. Query ANC state once and independently decode the extended Pro 5 ANC shape.
@@ -423,7 +442,7 @@ There is no second attempt for a timeout, malformed feature response, or missing
 
 An explicit ANC action performs this sequence on one new socket:
 
-1. Require the exact empty `01/06` startup frame within the connection deadline.
+1. Establish medium-security RFCOMM within the connection deadline; do not wait for an optional `01/06` control frame.
 2. Query and strictly verify DeviceInfo `00016D`.
 3. Query and strictly validate the extended Pro 5 ANC state.
 4. If the current top-level mode already equals the requested mode, perform no write and return the matching read as success.
