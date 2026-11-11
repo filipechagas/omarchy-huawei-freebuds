@@ -299,53 +299,17 @@ Ui.Panel {
         onTriggered: root.serviceWaitExpired = true
     }
 
-    Component {
-        id: barContent
-
-        Item {
-            Row {
-                anchors.centerIn: parent
-                spacing: Commons.Style.space(4)
-
-                Text {
-                    text: root.barIconText
-                    color: root.barForeground
-                    font.family: root.fontFamily
-                    font.pixelSize: Commons.Style.barToken("icon-font", 13)
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    visible: !root.verticalBar && root.barPercentText !== ""
-                    text: root.barPercentText
-                    color: root.barForeground
-                    font.family: root.fontFamily
-                    font.pixelSize: root.bodySmallFontSize
-                    font.bold: true
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    visible: !root.verticalBar && root.barAncText !== ""
-                    text: root.barAncText
-                    color: root.barForeground
-                    font.family: root.fontFamily
-                    font.pixelSize: root.captionFontSize
-                    font.bold: true
-                    Accessible.ignored: true
-                }
-            }
-        }
-    }
-
-    Ui.BarIconButton {
+    // This is a compound label, not an icon canvas: BarIconButton optically
+    // normalizes its entire iconComponent, shrinking the percentage and mode.
+    Ui.WidgetButton {
         id: barButton
         anchors.fill: parent
         bar: root.bar
         dimmed: !root.generic.adapterPresent || !root.generic.adapterEnabled || !root.currentView.connected
-        slotSize: root.barSlotWidth
-        opticalSize: root.barSlotWidth
-        iconComponent: barContent
+        fixedWidth: root.verticalBar ? -1 : root.barSlotWidth
+        fixedHeight: root.verticalBar ? root.barSlotWidth : -1
+        labelVisible: false
+        hasVisualContent: true
         tooltipText: root.currentView.barTooltip || "FreeBuds Pro 5"
         onPressed: function (button) {
             if (button === Qt.LeftButton)
@@ -356,6 +320,43 @@ Ui.Panel {
         Accessible.name: root.currentView.barAccessibleName || "FreeBuds Pro 5"
         Accessible.description: root.opened ? "Closes FreeBuds status" : "Opens FreeBuds status"
         Accessible.onPressAction: root.toggle()
+
+        Row {
+            anchors.centerIn: parent
+            spacing: Commons.Style.space(4)
+            scale: root.dynamicProperty(barButton, "pressScale") || 1
+
+            Text {
+                text: root.barIconText
+                textFormat: Text.PlainText
+                color: root.barForeground
+                font.family: root.fontFamily
+                font.pixelSize: Commons.Style.barToken("icon-font", 13)
+                Accessible.ignored: true
+            }
+
+            Text {
+                visible: !root.verticalBar && root.barPercentText !== ""
+                text: root.barPercentText
+                textFormat: Text.PlainText
+                color: root.barForeground
+                font.family: root.fontFamily
+                font.pixelSize: root.bodySmallFontSize
+                font.bold: true
+                Accessible.ignored: true
+            }
+
+            Text {
+                visible: !root.verticalBar && root.barAncText !== ""
+                text: root.barAncText
+                textFormat: Text.PlainText
+                color: root.barForeground
+                font.family: root.fontFamily
+                font.pixelSize: root.captionFontSize
+                font.bold: true
+                Accessible.ignored: true
+            }
+        }
     }
 
     Ui.KeyboardPanel {

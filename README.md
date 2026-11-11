@@ -28,13 +28,13 @@ assets.
 
 ## Release Status
 
-Release `0.1.0` is gated by the authoritative
+Release `0.1.1` is gated by the authoritative
 [`docs/hardware-validation.md`](docs/hardware-validation.md) ledger, which is
 currently `Pending` with all sixteen rows `Not run`. Therefore no release tag is
 currently eligible to pass CI.
 
 A release tag can pass only when the ledger says `Status: Passed`, every
-HW-01..HW-16 row says `Pass`, and `v0.1.0` is an annotated tag on the exact
+HW-01..HW-16 row says `Pass`, and `v0.1.1` is an annotated tag on the exact
 green `main` commit containing a complete PGP or SSH signature envelope. CI
 queries GitHub's annotated-tag REST object with the workflow token and accepts
 the tag only when GitHub cryptographically verifies the PGP or SSH signature
@@ -54,6 +54,12 @@ No current signing readiness is claimed.
   ABI.
 - Owner-authorized FreeBuds Pro 5 paired, bonded, and connected through
   Omarchy Bluetooth.
+
+The bar widget also supports Omarchy 4.5's optical icon sizing. Version `0.1.1`
+fixes the icon, battery percentage, and noise-control label being shrunk together.
+Host smoke tests cover both the original Omarchy 4.0 contract and Omarchy 4.5.
+The fix was also tested locally on Omarchy `4.5.0-3`, Quickshell
+`0.3.2.r7.g2b4501a-1`, and Qt `6.12.0` using fixtures, not physical hardware gates.
 
 No OpenFreebuds, AUR package, systemd unit, build step, or separately installed
 helper is required.

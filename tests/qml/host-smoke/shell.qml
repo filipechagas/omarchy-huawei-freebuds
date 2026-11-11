@@ -90,7 +90,7 @@ ShellRoot {
         service.manifest = {
             schemaVersion: 1,
             id: "io.github.filipechagas.freebuds",
-            version: "0.1.0",
+            version: "0.1.1",
             __sourceDir: bridgeRoot
         }
         return service
@@ -114,6 +114,45 @@ ShellRoot {
               "Second panel disappeared with the service")
     }
 
+    function findText(item, text) {
+        if (item instanceof Text && item.text === text && item.visible)
+            return item
+        var children = item.children || []
+        for (var i = 0; i < children.length; i++) {
+            var match = findText(children[i], text)
+            if (match)
+                return match
+        }
+        return null
+    }
+
+    function checkBarRendering(panel) {
+        if (!panel)
+            return
+        var glyph = findText(panel, panel.barIconText)
+        check(glyph !== null, "Bar icon is missing")
+        if (glyph) {
+            var bounds = glyph.mapToItem(panel, 0, 0, glyph.width, glyph.height)
+            check(bounds.height >= 8, "Bar icon was shrunk below readable size: " + bounds.height)
+        }
+        var texts = [panel.barPercentText, panel.barAncText]
+        for (var i = 0; i < texts.length; i++) {
+            if (texts[i] === "")
+                continue
+            var label = findText(panel, texts[i])
+            if (panel.verticalBar) {
+                check(label === null, "Vertical bar did not hide its compact labels")
+                continue
+            }
+            check(label !== null, "Bar label is missing: " + texts[i])
+            if (label) {
+                var labelBounds = label.mapToItem(panel, 0, 0, label.width, label.height)
+                check(labelBounds.height >= label.font.pixelSize * 0.8,
+                      "Bar labels were shrunk with the icon: " + labelBounds.height)
+            }
+        }
+    }
+
     function run() {
         serviceComponent = load("Service.qml")
         panelComponent = load("Panel.qml")
@@ -126,6 +165,8 @@ ShellRoot {
     }
 
     function verifyStartupState() {
+        checkBarRendering(firstPanel)
+        checkBarRendering(secondPanel)
         if (startupDuplicateInvalid) {
             check(serviceObject && serviceObject.helperPhase === "failed",
                   "Duplicate startup error did not fail the helper")
@@ -227,6 +268,9 @@ ShellRoot {
               "First bar widget is not always visible")
         check(secondPanel && secondPanel.visible,
               "Second bar widget is not always visible")
+
+        checkBarRendering(firstPanel)
+        checkBarRendering(secondPanel)
 
         destroyService()
         if (replacementPhase)

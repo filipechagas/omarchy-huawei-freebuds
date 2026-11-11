@@ -50,7 +50,7 @@ jobs:
               "schemaVersion": 1,
               "id": "io.github.filipechagas.freebuds",
               "name": "FreeBuds Pro 5",
-              "version": "0.1.0",
+              "version": "0.1.1",
               "author": "Filipe Chagas",
               "license": "MIT",
               "description": "Battery and noise control for Huawei FreeBuds Pro 5.",
@@ -694,7 +694,17 @@ jobs:
           PY
 
   qml:
-    name: Pinned host QML and formatting
+    name: QML and formatting (Omarchy ${{ matrix.omarchy }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - omarchy: "4.0"
+            commit: f0020448ca87329199de7cb12f2015ebc4a3e5e7
+          - omarchy: "4.5"
+            commit: ac2690cd7be4f47e4a255f5e2e78d904d436b068
+    env:
+      OMARCHY_COMMIT: ${{ matrix.commit }}
     runs-on: ubuntu-latest
     container: archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a
     timeout-minutes: 25
