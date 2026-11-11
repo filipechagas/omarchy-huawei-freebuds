@@ -50,7 +50,7 @@ jobs:
               "schemaVersion": 1,
               "id": "io.github.filipechagas.freebuds",
               "name": "FreeBuds Pro 5",
-              "version": "0.1.2",
+              "version": "0.1.3",
               "author": "Filipe Chagas",
               "license": "MIT",
               "description": "Battery and noise control for Huawei FreeBuds Pro 5.",
@@ -136,8 +136,20 @@ jobs:
           if os.environ.get("GITHUB_REF_TYPE") != "tag":
               raise SystemExit(0)
           tag_ref = os.environ["GITHUB_REF"]
+          # actions/checkout may replace an annotated tag's local ref with its
+          # peeled commit. Fetch the remote object into an independent ref.
+          checked_ref = "refs/release-check/tag"
+          subprocess.check_call(
+              ["git", "fetch", "--quiet", "--no-tags", "origin", f"{tag_ref}:{checked_ref}"]
+          )
+          tag_commit = subprocess.check_output(
+              ["git", "rev-parse", f"{checked_ref}^{{commit}}"], text=True
+          ).strip()
+          head_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if tag_commit != head_commit:
+              raise SystemExit("remote release tag must target the checked commit")
           object_type = subprocess.check_output(
-              ["git", "cat-file", "-t", tag_ref],
+              ["git", "cat-file", "-t", checked_ref],
               text=True,
           ).strip()
           if object_type != "tag":
@@ -221,6 +233,7 @@ jobs:
               "manifest.json",
               "tests/python/test_framer.py",
               "tests/python/test_jsonl.py",
+              "tests/python/test_release_policy.py",
               "tests/python/test_transactions.py",
               "tests/qml/fixtures/fake_bridge.py",
               "tests/qml/host-smoke/shell.qml",

@@ -43,6 +43,11 @@ A push alone does not update the user's running plugin.
    retain truthful results rather than marking unrun rows passed. Runtime
    Bluetooth safeguards and exact-model support remain unchanged.
 
+Tag validation fetches the remote object into a separate ref because
+`actions/checkout` can peel annotated tags into local lightweight refs. Preserve
+that fetch and checked-commit comparison. If an unpublished tag fails CI, fix
+the issue and advance the patch version rather than rewriting a pushed tag.
+
 ### Marketplace update validation
 
 After each release, use the existing-listing update flow in

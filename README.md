@@ -32,7 +32,7 @@ Releases require owner acceptance and passing automated checks. Completing all
 sixteen optional hardware checks is not required. The owner accepted the plugin
 on 2026-11-11; that acceptance does not mark individual unrun checks as passed.
 
-`v0.1.2` must be an annotated tag on the exact green `main` commit and match the
+`v0.1.3` must be an annotated tag on the exact green `main` commit and match the
 manifest version. Tag signatures are optional; no signing-key setup or GitHub
 signature verification is required to publish.
 

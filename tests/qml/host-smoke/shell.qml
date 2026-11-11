@@ -91,7 +91,7 @@ ShellRoot {
         service.manifest = {
             schemaVersion: 1,
             id: "io.github.filipechagas.freebuds",
-            version: "0.1.2",
+            version: "0.1.3",
             __sourceDir: bridgeRoot
         }
         return service
