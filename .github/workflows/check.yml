@@ -21,11 +21,11 @@ defaults:
     shell: bash
 
 env:
-  ARCH_SNAPSHOT: "2026/08/18"
+  ARCH_SNAPSHOT: "2026/08/21"
   OMARCHY_COMMIT: f0020448ca87329199de7cb12f2015ebc4a3e5e7
   QUICKSHELL_REVISION: 28771c7c74b42e20afca0b1b63980cb46515537c
-  QUICKSHELL_PACKAGE: quickshell-git-0.3.0.r20.g28771c7-1-x86_64.pkg.tar.zst
-  QUICKSHELL_SHA256: 5e4d8cb4eb05a741545d9f058ad440faa3111df925a7bba0ab98337765f06930
+  QUICKSHELL_PACKAGE: quickshell-git-0.3.0.r20.g28771c7-2-x86_64.pkg.tar.zst
+  QUICKSHELL_SHA256: 048cc4a3d54bd164b8589f756eb075f0688d9bd24949b734a5edb4e217b8ba30
 
 jobs:
   repository:
@@ -720,8 +720,8 @@ jobs:
             --output "$package"
           printf '%s  %s\n' "$QUICKSHELL_SHA256" "$package" | sha256sum --check --strict
           pacman --noconfirm --noprogressbar -U "$package"
-          pacman -Q qt6-base | grep --extended-regexp --quiet '^qt6-base 6\.11\.1-'
-          pacman -Q qt6-declarative | grep --extended-regexp --quiet '^qt6-declarative 6\.11\.1-'
+          pacman -Q qt6-base | grep --extended-regexp --quiet '^qt6-base 6\.11\.2-'
+          pacman -Q qt6-declarative | grep --extended-regexp --quiet '^qt6-declarative 6\.11\.2-'
           quickshell --version | tee "$RUNNER_TEMP/quickshell-version"
           grep --fixed-strings --quiet "$QUICKSHELL_REVISION" "$RUNNER_TEMP/quickshell-version"
 

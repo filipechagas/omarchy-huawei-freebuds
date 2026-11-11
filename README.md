@@ -48,8 +48,8 @@ No current signing readiness is claimed.
 ## Requirements
 
 - Omarchy `4.0.0-1`.
-- Host-provided Quickshell `0.3.0.r20.g28771c7-1` at revision
-  `28771c7c74b42e20afca0b1b63980cb46515537c`, with Qt `6.11.1`.
+- Host-provided Quickshell `0.3.0.r20.g28771c7-2` at revision
+  `28771c7c74b42e20afca0b1b63980cb46515537c`, with Qt `6.11.2`.
 - Host `python3`, the Python standard library, and the Linux Bluetooth socket
   ABI.
 - Owner-authorized FreeBuds Pro 5 paired, bonded, and connected through
