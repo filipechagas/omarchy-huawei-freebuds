@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import qs.Commons as Commons
 
 ShellRoot {
     id: root
@@ -90,7 +91,7 @@ ShellRoot {
         service.manifest = {
             schemaVersion: 1,
             id: "io.github.filipechagas.freebuds",
-            version: "0.1.1",
+            version: "0.1.2",
             __sourceDir: bridgeRoot
         }
         return service
@@ -134,8 +135,15 @@ ShellRoot {
         if (glyph) {
             var bounds = glyph.mapToItem(panel, 0, 0, glyph.width, glyph.height)
             check(bounds.height >= 8, "Bar icon was shrunk below readable size: " + bounds.height)
+            var suffixes = ["OFF", "ANC", "AWR"]
+            for (var suffix = 0; suffix < suffixes.length; suffix++)
+                check(findText(glyph.parent, suffixes[suffix]) === null,
+                      "Bar has a redundant noise-control suffix: " + suffixes[suffix])
         }
-        var texts = [panel.barPercentText, panel.barAncText]
+        var expectedWidth = Commons.Style.barToken("icon-slot", 27)
+            + (panel.verticalBar || panel.barPercentText === "" ? 0 : Commons.Style.space(34))
+        check(panel.barSlotWidth === expectedWidth, "Bar reserves space for a removed suffix")
+        var texts = [panel.barPercentText]
         for (var i = 0; i < texts.length; i++) {
             if (texts[i] === "")
                 continue
@@ -151,6 +159,24 @@ ShellRoot {
                       "Bar labels were shrunk with the icon: " + labelBounds.height)
             }
         }
+    }
+
+    function checkBarModes() {
+        var original = serviceObject._state
+        var icons = { off: "󰟎", anc: "󱑽", awareness: "󰟅" }
+        var modes = Object.keys(icons)
+        for (var i = 0; i < modes.length; i++) {
+            var state = JSON.parse(JSON.stringify(original))
+            state.privateState.anc.mode = modes[i]
+            serviceObject._state = state
+            var panels = [firstPanel, secondPanel]
+            for (var p = 0; p < panels.length; p++) {
+                check(panels[p].barIconText === icons[modes[i]],
+                      "Bar icon does not reflect mode " + modes[i])
+                checkBarRendering(panels[p])
+            }
+        }
+        serviceObject._state = original
     }
 
     function run() {
@@ -272,6 +298,7 @@ ShellRoot {
         checkBarRendering(firstPanel)
         checkBarRendering(secondPanel)
 
+        checkBarModes()
         destroyService()
         if (replacementPhase)
             finalServiceGone.start()

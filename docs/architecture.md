@@ -8,7 +8,7 @@ License: `MIT`
 
 ## 1. Authority and scope
 
-This document is the closed architecture decision record for the first release. It supersedes every conflicting recommendation in the research reports. The reports remain evidence sources; they are not implementation authority. [`hardware-validation.md`](hardware-validation.md) is the authoritative physical release ledger.
+This document records the architecture decisions. It supersedes conflicting recommendations in the research reports. The reports remain evidence sources; they are not implementation authority. [`hardware-validation.md`](hardware-validation.md) is an optional physical-check ledger; [`../CLAUDE.md`](../CLAUDE.md) owns the current release workflow.
 
 The release supports one hardware target: **HUAWEI FreeBuds Pro 5**, public model **T0023**, with private DeviceInfo model ID **00016D**. A name match is only a candidate-selection hint. It never establishes private-protocol capability.
 
@@ -593,20 +593,23 @@ The following branches are closed for `0.1.0`. Implementing one requires a new a
 | External private-control IPC | Adds an undisclosed transaction trigger and multi-monitor target contention | Direct panel-to-singleton functions only |
 | Automatic child restart loop | Can thrash the shell and obscures failure | One child start; explicit Retry after failure |
 
-## 17. Release readiness and hardware gate
+## 17. Release readiness
 
-Version `0.1.0` is gated by physical validation. Passing that gate satisfies
-the hardware condition for a release tag; it does not by itself establish a
-broader stable-support claim. Offline tests can establish parser and transaction
-correctness, but they cannot establish that retail T0023 firmware accepts Linux
-RFCOMM channel 1 with explicit medium security or that retained frames behave
-identically on the available unit.
+On 2026-11-11 the owner reported the plugin working on their FreeBuds Pro 5 and
+accepted that validation for releases. Owner acceptance and passing automated
+checks replace the original mandatory sixteen-row hardware gate. The optional
+[`hardware-validation.md`](hardware-validation.md) checklist retains its actual
+results; unrun checks are not claimed as passed. This policy does not broaden
+support beyond T0023/`00016D` or change runtime protocol safeguards.
 
-[`hardware-validation.md`](hardware-validation.md) is the sole hardware status ledger. Its current status is `Pending`, and HW-01 through HW-16 are all `Not run`; no hardware test is claimed as passed. A release tag can pass only when that document says `Status: Passed` and every one of its sixteen rows says `Pass`.
+See [`../CLAUDE.md`](../CLAUDE.md) for the authoritative release and marketplace
+workflow. Omarchy distributes `main`, so its green commit is the publication
+unit and the marketplace request must identify that exact commit.
 
-An eligible release tag must be an annotated `vX.Y.Z` tag object at the exact green commit on `main` and must contain a complete PGP or SSH signature envelope. CI queries GitHub's annotated-tag REST object with its workflow token and accepts the tag only when GitHub cryptographically verifies the PGP or SSH signature with `verification.verified` equal to `true` and `verification.reason` equal to `valid`. The REST object's tag identity, direct commit target, signature, and signed payload must also be well formed and agree with the local tag object. API errors, malformed or mismatched responses, forged signature markers, lightweight tags, unsigned annotated tags, a mismatched manifest version, a non-main commit, a Pending or Failed hardware status, and any non-Pass hardware row fail CI. CI has no private signing key configured, and no current signing readiness is claimed.
-
-If any hardware check fails or remains unexecuted, the exact row remains `Fail` or `Not run`, private controls remain fail-closed for the affected path, and no fallback channel, security level, model, dependency, or protocol branch is introduced.
+Optional hardware results remain `Fail` or `Not run` until actually observed.
+Private controls continue to enforce runtime identity and capability checks;
+checklist status does not enable or disable them. No fallback channel, security
+level, model, dependency, or protocol branch is introduced to satisfy a check.
 
 ## 18. Architectural acceptance criteria
 
@@ -625,5 +628,5 @@ The implementation conforms to this record only when all statements below are tr
 - Host smoke tests prove disable, reload, update, and removal leave no child process or socket.
 - Repository checks reject symlinks and raw mode-`160000` gitlinks.
 - Repository checks require the bounded `880x1080` PNG documentation preview and reject every other binary path.
-- A release tag remains blocked until the hardware ledger is Passed in every row, the annotated tag contains a PGP or SSH signature envelope, and GitHub cryptographically verifies that signature with `verification.verified: true` and `verification.reason: valid`.
-- Passing the hardware gate does not broaden the exact T0023/`00016D` scope or any support claim.
+- Releases follow owner acceptance, green automated checks, and the workflow in `CLAUDE.md`.
+- Owner acceptance does not broaden the exact T0023/`00016D` scope or mark optional hardware checks as passed.

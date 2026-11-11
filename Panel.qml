@@ -47,9 +47,8 @@ Ui.Panel {
     readonly property string connectionText: currentView.connectionText || "No earbuds selected"
     readonly property string barPercentText: currentView.barPercentText || ""
     readonly property string barAncMode: currentView.barAncMode || ""
-    readonly property string barAncText: currentView.barAncText || ""
     readonly property string barIconText: barAncMode === "off" ? "󰟎" : barAncMode === "anc" ? "󱑽" : barAncMode === "awareness" ? "󰟅" : "󰋋"
-    readonly property real barSlotWidth: verticalBar ? Commons.Style.barToken("icon-slot", 27) : Commons.Style.barToken("icon-slot", 27) + (barPercentText === "" ? 0 : Commons.Style.space(34)) + (barAncText === "" ? 0 : Commons.Style.space(30))
+    readonly property real barSlotWidth: Commons.Style.barToken("icon-slot", 27) + (verticalBar || barPercentText === "" ? 0 : Commons.Style.space(34))
     readonly property bool candidatePickerVisible: selectedAddress === null && candidates.length > 0
     readonly property bool ancVisible: currentView.ancVisible === true
     readonly property bool ancEnabled: currentView.ancEnabled === true
@@ -300,7 +299,7 @@ Ui.Panel {
     }
 
     // This is a compound label, not an icon canvas: BarIconButton optically
-    // normalizes its entire iconComponent, shrinking the percentage and mode.
+    // normalizes its entire iconComponent, shrinking the percentage too.
     Ui.WidgetButton {
         id: barButton
         anchors.fill: parent
@@ -342,17 +341,6 @@ Ui.Panel {
                 color: root.barForeground
                 font.family: root.fontFamily
                 font.pixelSize: root.bodySmallFontSize
-                font.bold: true
-                Accessible.ignored: true
-            }
-
-            Text {
-                visible: !root.verticalBar && root.barAncText !== ""
-                text: root.barAncText
-                textFormat: Text.PlainText
-                color: root.barForeground
-                font.family: root.fontFamily
-                font.pixelSize: root.captionFontSize
                 font.bold: true
                 Accessible.ignored: true
             }

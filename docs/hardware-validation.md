@@ -1,27 +1,18 @@
-# Hardware Validation
+# Optional Hardware Validation
 
 Status: Pending
 
-No hardware gate has been run or passed. Automated fixtures, parser tests, QML
-tests, and host smoke tests do not count as physical hardware evidence.
+The owner reports the plugin working on their FreeBuds Pro 5 and accepted it for
+release on 2026-11-11. The detailed checks below have not been run individually;
+their `Not run` results are retained honestly. Automated fixtures, parser tests,
+QML tests, and host smoke tests are separate from physical hardware evidence.
 
-## Release Gate
+## Release Policy
 
-A release tag can pass CI only when this document says `Status: Passed` and
-every row from HW-01 through HW-16 says `Pass`. A `Fail` or `Not run` result
-blocks the tag. Passing this gate satisfies only the physical hardware
-condition; every other release condition still applies.
-
-The release tag must also be an annotated tag object containing a complete PGP
-or SSH signature envelope. CI queries GitHub's annotated-tag REST object with
-the workflow token and accepts the tag only when GitHub cryptographically
-verifies the PGP or SSH signature with `verification.verified` equal to `true`
-and `verification.reason` equal to `valid`. API errors, malformed or mismatched
-responses, forged signature markers, lightweight tags, and unsigned annotated
-tags are rejected. CI has no private signing key configured.
-No current signing readiness is claimed. Omarchy still installs and updates the
-default branch rather than a tag, so `main` must remain release-ready
-independently of tag provenance.
+Owner acceptance and green automated checks are the release criteria. This
+matrix is an optional diagnostic checklist, not a release gate. A `Pending`
+status or `Not run` result does not block releases. See [`../CLAUDE.md`](../CLAUDE.md)
+for the release and marketplace-validation workflow.
 
 Only an owner-authorized retail HUAWEI FreeBuds Pro 5, public model T0023, may
 be used. Record exact host, adapter, firmware, Omarchy, Quickshell, Qt, BlueZ,
@@ -58,8 +49,7 @@ condition is not met. Keep `Status: Pending` while any row is `Not run`; use
 `Status: Failed` when the completed matrix contains a failure; use
 `Status: Passed` only when all sixteen rows are `Pass`.
 
-After any implementation change prompted by hardware evidence, reset every row
-to `Not run`, set the status to `Pending`, rerun the complete automated gate,
-and execute HW-01 through HW-16 again. Do not add a fallback channel, lower
-security level, broader model, automatic retry, or unverified command to make a
-row pass.
+After a relevant implementation change, rerun affected optional checks before
+claiming their results still apply. Runtime safeguards remain mandatory: fixed
+channel, medium transport security, strict model identity, bounded transactions,
+and verified write readback.

@@ -1,20 +1,20 @@
 # FreeBuds Pro 5 for Omarchy
 
-**Hardware validation pending:** this plugin targets only HUAWEI FreeBuds Pro 5,
-public model T0023 and private DeviceInfo model ID `00016D`. Every row from
-`HW-01` through `HW-16` is `Not run`.
-No hardware test is claimed as passed. No other model is supported; unavailable
-private access falls back to display-only generic Bluetooth status.
+**Owner-validated:** the owner reports the plugin working on their FreeBuds Pro 5
+and accepts that validation for releases. This plugin targets only HUAWEI
+FreeBuds Pro 5, public model T0023 and private DeviceInfo model ID `00016D`.
+The optional hardware checklist in `docs/hardware-validation.md` is not a release
+gate, and unrun checks remain recorded as such. No other model is supported;
+unavailable private access falls back to display-only generic Bluetooth status.
 
 The plugin adds an always-visible Omarchy 4 bar widget. Quickshell supplies
 paired, connected, adapter, and fallback `Earbuds` battery state. After a fresh
 verified component read, the panel shows only left, right, and case values and
 the bar uses the lower earbud percentage; the case is never part of that compact
-value. The widget also shows a verified `OFF`, `ANC`, or `AWR` mode with a
-matching dynamic glyph. A bundled, standard-library Python bridge implements
-gated battery reads and only `Off`, `ANC`, or `Awareness` writes, with a fresh
-readback required for success. Those private paths have not passed physical
-hardware validation.
+value. A dynamic glyph indicates the verified noise-control mode without a text
+suffix; the tooltip and accessible name retain the mode. A bundled,
+standard-library Python bridge implements gated battery reads and only `Off`,
+`ANC`, or `Awareness` writes, with a fresh readback required for success.
 
 ![FreeBuds Pro 5 Omarchy panel preview](docs/preview.png)
 
@@ -28,22 +28,16 @@ assets.
 
 ## Release Status
 
-Release `0.1.1` is gated by the authoritative
-[`docs/hardware-validation.md`](docs/hardware-validation.md) ledger, which is
-currently `Pending` with all sixteen rows `Not run`. Therefore no release tag is
-currently eligible to pass CI.
+Releases require owner acceptance and passing automated checks. Completing all
+sixteen optional hardware checks is not required. The owner accepted the plugin
+on 2026-11-11; that acceptance does not mark individual unrun checks as passed.
 
-A release tag can pass only when the ledger says `Status: Passed`, every
-HW-01..HW-16 row says `Pass`, and `v0.1.1` is an annotated tag on the exact
-green `main` commit containing a complete PGP or SSH signature envelope. CI
-queries GitHub's annotated-tag REST object with the workflow token and accepts
-the tag only when GitHub cryptographically verifies the PGP or SSH signature
-with `verification.verified` equal to `true` and
-`verification.reason` equal to `valid`. API errors, malformed responses, forged
-signature markers, lightweight tags, unsigned annotated tags, and hardware rows
-that are `Fail` or `Not run` are rejected. CI is not configured with a private
-signing key.
-No current signing readiness is claimed.
+`v0.1.2` must be an annotated tag on the exact green `main` commit and match the
+manifest version. Tag signatures are optional; no signing-key setup or GitHub
+signature verification is required to publish.
+
+Contributor release and marketplace-update instructions are in
+[`CLAUDE.md`](CLAUDE.md).
 
 ## Requirements
 
@@ -79,9 +73,8 @@ omarchy plugin add https://github.com/filipechagas/omarchy-huawei-freebuds.git -
 Omarchy clones the remote default `HEAD`, and `omarchy plugin update` later
 fast-forwards to `origin/HEAD`; it does not select a GitHub release or version
 tag. Therefore `main` is the distribution channel and must always be
-release-ready. An eligible annotated `vX.Y.Z` tag whose PGP or SSH signature
-GitHub cryptographically verifies records a reviewed release, but does not pin
-installation or updates.
+release-ready. An annotated `vX.Y.Z` tag records a reviewed release, but does not
+pin installation or updates.
 
 ## Use
 

@@ -50,7 +50,7 @@ jobs:
               "schemaVersion": 1,
               "id": "io.github.filipechagas.freebuds",
               "name": "FreeBuds Pro 5",
-              "version": "0.1.1",
+              "version": "0.1.2",
               "author": "Filipe Chagas",
               "license": "MIT",
               "description": "Battery and noise control for Huawei FreeBuds Pro 5.",
@@ -90,9 +90,7 @@ jobs:
             }
           fi
 
-      - name: Validate hardware evidence and cryptographic tag signature
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Validate optional hardware checklist and annotated release tag
         run: |
           python3 - <<'PY'
           import os
@@ -137,11 +135,6 @@ jobs:
 
           if os.environ.get("GITHUB_REF_TYPE") != "tag":
               raise SystemExit(0)
-          if status != "Passed" or any(result != "Pass" for result in results.values()):
-              raise SystemExit(
-                  "release tags require hardware-validation Status Passed and every HW row Pass"
-              )
-
           tag_ref = os.environ["GITHUB_REF"]
           object_type = subprocess.check_output(
               ["git", "cat-file", "-t", tag_ref],
@@ -149,108 +142,7 @@ jobs:
           ).strip()
           if object_type != "tag":
               raise SystemExit("release tags must be annotated tag objects")
-          tag_object = subprocess.check_output(["git", "cat-file", "tag", tag_ref])
-          envelopes = (
-              (b"-----BEGIN PGP SIGNATURE-----", b"-----END PGP SIGNATURE-----"),
-              (b"-----BEGIN SSH SIGNATURE-----", b"-----END SSH SIGNATURE-----"),
-          )
-          if not any(
-              begin in tag_object
-              and end in tag_object
-              and tag_object.index(begin) < tag_object.index(end)
-              for begin, end in envelopes
-          ):
-              raise SystemExit(
-                  "annotated release tag must contain a complete PGP or SSH signature envelope"
-              )
           PY
-
-          if [[ ${GITHUB_REF_TYPE:-} == tag ]]; then
-            if [[ -z ${GITHUB_TOKEN:-} ]]; then
-              printf 'workflow token is unavailable for release-tag verification\n' >&2
-              exit 1
-            fi
-            tag_object_sha=$(git rev-parse "$GITHUB_REF^{tag}")
-            tag_commit_sha=$(git rev-parse "$GITHUB_REF^{commit}")
-            verification_response="$RUNNER_TEMP/release-tag-verification.json"
-            if ! curl \
-              --fail-with-body \
-              --silent \
-              --show-error \
-              --proto '=https' \
-              --tlsv1.2 \
-              --url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" \
-              --header 'Accept: application/vnd.github+json' \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              --header 'X-GitHub-Api-Version: 2022-11-28' \
-              --output "$verification_response"; then
-              printf 'GitHub annotated-tag verification request failed\n' >&2
-              exit 1
-            fi
-
-            TAG_OBJECT_SHA="$tag_object_sha" \
-            TAG_COMMIT_SHA="$tag_commit_sha" \
-            TAG_VERIFICATION_RESPONSE="$verification_response" \
-            python3 - <<'PY'
-          import json
-          import os
-          import subprocess
-          from pathlib import Path
-
-          try:
-              response = json.loads(
-                  Path(os.environ["TAG_VERIFICATION_RESPONSE"]).read_text(encoding="utf-8")
-              )
-          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-              raise SystemExit(
-                  f"GitHub returned an unreadable release-tag verification response: {error}"
-              ) from error
-          if not isinstance(response, dict):
-              raise SystemExit("GitHub release-tag verification response must be an object")
-
-          expected_tag_sha = os.environ["TAG_OBJECT_SHA"]
-          expected_commit_sha = os.environ["TAG_COMMIT_SHA"]
-          expected_tag_name = os.environ["GITHUB_REF_NAME"]
-          if response.get("sha") != expected_tag_sha:
-              raise SystemExit("GitHub verified a different annotated tag object")
-          if response.get("tag") != expected_tag_name:
-              raise SystemExit("GitHub annotated tag name differs from the release ref")
-
-          target = response.get("object")
-          if not isinstance(target, dict):
-              raise SystemExit("GitHub annotated tag response is missing its target object")
-          if target.get("type") != "commit" or target.get("sha") != expected_commit_sha:
-              raise SystemExit("release tag must directly target the checked commit")
-
-          verification = response.get("verification")
-          if not isinstance(verification, dict):
-              raise SystemExit("GitHub annotated tag response is missing verification metadata")
-          if verification.get("verified") is not True or verification.get("reason") != "valid":
-              reason = verification.get("reason")
-              raise SystemExit(
-                  f"GitHub did not cryptographically verify the release tag: reason={reason!r}"
-              )
-          signature = verification.get("signature")
-          payload = verification.get("payload")
-          if not isinstance(signature, str) or not signature.strip():
-              raise SystemExit("GitHub verification response has no signature payload")
-          if not isinstance(payload, str) or not payload.strip():
-              raise SystemExit("GitHub verification response has no signed tag payload")
-
-          local_tag = subprocess.check_output(
-              ["git", "cat-file", "tag", os.environ["GITHUB_REF"]]
-          )
-          signature_bytes = signature.encode("utf-8")
-          payload_bytes = payload.encode("utf-8")
-          signature_offset = local_tag.find(signature_bytes)
-          if signature_offset < 0:
-              raise SystemExit("GitHub verification signature differs from the local tag object")
-          if local_tag[:signature_offset] != payload_bytes:
-              raise SystemExit("GitHub verified payload differs from the local tag object")
-          if local_tag[signature_offset:].rstrip(b"\n") != signature_bytes.rstrip(b"\n"):
-              raise SystemExit("release tag contains unsigned data after its verified signature")
-          PY
-          fi
 
       - name: Validate license and README contract
         run: |
@@ -266,17 +158,14 @@ jobs:
 
           readme = Path("README.md").read_text(encoding="utf-8")
           required = [
-              "**Hardware validation pending:**",
+              "**Owner-validated:**",
               "T0023",
               "`00016D`",
               "Omarchy `4.0.0-1`",
               "MIT License",
-              "No hardware test is claimed as passed",
-              "complete PGP or SSH signature envelope",
-              "GitHub cryptographically verifies the PGP or SSH signature",
-              "`verification.verified` equal to `true`",
-              "`verification.reason` equal to `valid`",
-              "No current signing readiness is claimed",
+              "optional hardware checklist",
+              "Tag signatures are optional",
+              "CLAUDE.md",
               "![FreeBuds Pro 5 Omarchy panel preview](docs/preview.png)",
               "The preview uses deterministic fixture values",
               "https://github.com/filipechagas/omarchy-huawei-freebuds.git",
@@ -315,6 +204,7 @@ jobs:
           expected = {
               ".gitignore",
               ".github/workflows/check.yml",
+              "CLAUDE.md",
               "LICENSE",
               "Model.js",
               "Panel.qml",

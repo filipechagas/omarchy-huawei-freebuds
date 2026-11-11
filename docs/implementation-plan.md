@@ -1,10 +1,15 @@
 # FreeBuds Pro 5 Omarchy Plugin Implementation Plan
 
-Status: Ready for execution
+Status: Historical implementation plan
 Plan date: 2026-08-18
 Architecture authority: [`architecture.md`](architecture.md)
 Target release: `0.1.0`
 Plugin ID: `io.github.filipechagas.freebuds`
+
+Release-policy update (2026-11-11): [`../CLAUDE.md`](../CLAUDE.md) supersedes all
+release-gate instructions in this historical plan. Owner acceptance and green
+automated checks are sufficient; HW-01 through HW-16 are optional, not blockers.
+Tag signatures are optional as well.
 
 ## 1. Execution contract
 
